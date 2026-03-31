@@ -50,8 +50,6 @@
         "adapters/economist.js",
         "reader/renderer.js",
         "reader/translator.js",
-        "lib/translator.js",
-        "lib/dom-parser.js",
         "lib/html2canvas.min.js",
         "lib/jspdf.umd.min.js",
         "content.js"

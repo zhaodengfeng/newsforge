@@ -2,6 +2,8 @@
 
 A Chrome extension for clean reading, AI-powered translation, and screenshot/PDF sharing on news sites.
 
+[<img src="https://storage.googleapis.com/web-neoboard.appspot.com/img/chrome-web-store/badge2024/ChromeWebStore_Badge_v2_492x152.png" alt="Available in the Chrome Web Store" height="48">](https://chromewebstore.google.com/detail/newsforge-news-reader-tra/pcckppfeljmlhdpiflkokahokeccecjb)
+
 ## Supported Sites
 
 - Bloomberg
@@ -13,11 +15,11 @@ A Chrome extension for clean reading, AI-powered translation, and screenshot/PDF
 ## Features
 
 - **Reader Mode** — Distraction-free reading with warm editorial design
-- **AI Translation** — 14+ translation providers supported
+- **AI Translation** — 15+ translation providers, progressive rendering
   - Free: Google Translate, Microsoft Translator (no API key required)
-  - API-based: OpenAI, DeepSeek, Claude, Qwen, Gemini, GLM, MiniMax, Kimi, Xiaomi, DeepL, and custom endpoints
+  - API-based: OpenAI, DeepSeek, Claude, Qwen, Gemini, GLM, MiniMax, Kimi, Xiaomi, OpenRouter, DeepL, and custom endpoints
 - **Screenshot Export** — Clean image export respecting translation mode
-- **PDF Export** — Smart pagination with CJK support, no garbled text
+- **PDF Export** — Smart pagination with CJK support
 
 ## Translation Providers
 
@@ -28,22 +30,16 @@ A Chrome extension for clean reading, AI-powered translation, and screenshot/PDF
 | OpenAI | OpenAI compatible | gpt-4o-mini |
 | DeepSeek | OpenAI compatible | deepseek-chat |
 | Qwen | OpenAI compatible | qwen-plus |
-| Gemini | OpenAI compatible | gemini-2.0-flash |
+| Gemini | OpenAI compatible | gemini-2.5-flash |
 | GLM | OpenAI compatible | glm-4-flash |
 | MiniMax | OpenAI compatible | MiniMax-Text-01 |
 | Kimi | OpenAI compatible | moonshot-v1-8k |
-| Xiaomi | OpenAI compatible | user-defined |
+| Xiaomi | OpenAI compatible | MiMo-7B-RL |
+| OpenRouter | OpenAI compatible | google/gemma-3-27b-it:free |
 | Claude | Anthropic Messages API | claude-sonnet-4-20250514 |
 | DeepL | DeepL API | — |
 | Custom OpenAI | OpenAI compatible | user-defined |
 | Custom Claude | Anthropic Messages API | user-defined |
-
-## Installation
-
-1. Download the latest release or clone this repo
-2. Open Chrome → `chrome://extensions/`
-3. Enable Developer mode (top right)
-4. Click "Load unpacked" → select the `src/` folder
 
 ## Project Structure
 
@@ -64,7 +60,7 @@ src/
 ├── reader/
 │   ├── renderer.js        # Reader mode UI, screenshot, PDF export
 │   └── translator.js      # Paragraph-level translation handler
-├── lib/                   # Utilities and third-party libraries
+├── lib/                   # Third-party libraries
 ├── styles/
 │   ├── content.css        # Float icon, toast
 │   └── reader.css         # Reader mode styles
