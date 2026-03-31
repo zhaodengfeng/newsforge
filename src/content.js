@@ -80,7 +80,7 @@
     floatIcon = document.createElement('div');
     floatIcon.id = 'newsforge-float';
     floatIcon.className = 'nf-float-icon';
-    floatIcon.title = 'NewsForge - 阅读模式';
+    floatIcon.title = 'NewsForge - Reader Mode';
     floatIcon.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
       <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
       <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
@@ -106,7 +106,7 @@
       }
       const toast = document.createElement('div');
       toast.className = 'nf-toast';
-      toast.textContent = '未能提取到文章内容';
+      toast.textContent = 'Failed to extract article content';
       document.body.appendChild(toast);
       setTimeout(() => toast.remove(), 3000);
       return;

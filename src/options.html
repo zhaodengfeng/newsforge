@@ -303,7 +303,7 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
         <polyline points="20 6 9 17 4 12"/>
       </svg>
-      已保存
+      Saved
     </div>
   </div>
 
@@ -311,36 +311,36 @@
     <!-- Translation Provider -->
     <div class="section">
       <div class="section-header">
-        <div class="section-label">翻译引擎</div>
-        <div class="section-desc">选择翻译服务商</div>
+        <div class="section-label">Translation Engine</div>
+        <div class="section-desc">Choose translation provider</div>
       </div>
 
       <div class="card">
         <div class="config-card">
           <div class="field">
-            <label class="field-label">服务商</label>
+            <label class="field-label">Provider</label>
             <select class="input" id="providerSelect">
-              <optgroup label="免费（无需 API Key）">
-                <option value="google">Google 翻译</option>
-                <option value="microsoft">微软翻译</option>
+              <optgroup label="Free (No API Key required)">
+                <option value="google">Google Translate</option>
+                <option value="microsoft">Microsoft Translator</option>
               </optgroup>
-              <optgroup label="OpenAI 兼容 API">
+              <optgroup label="OpenAI-Compatible API">
                 <option value="openai">OpenAI</option>
                 <option value="deepseek">DeepSeek</option>
-                <option value="qwen">阿里百炼 (Qwen)</option>
+                <option value="qwen">Qwen (Alibaba)</option>
                 <option value="gemini">Gemini</option>
-                <option value="glm">GLM (智谱)</option>
+                <option value="glm">GLM (Zhipu)</option>
                 <option value="minimax">MiniMax</option>
-                <option value="kimi">Kimi (月之暗面)</option>
-                <option value="xiaomi">Xiaomi (小米)</option>
+                <option value="kimi">Kimi (Moonshot)</option>
+                <option value="xiaomi">Xiaomi</option>
               </optgroup>
-              <optgroup label="其他 API 格式">
+              <optgroup label="Other API">
                 <option value="claude">Claude (Anthropic)</option>
                 <option value="deepl">DeepL</option>
               </optgroup>
-              <optgroup label="自定义">
-                <option value="custom_openai">自定义 (OpenAI 兼容)</option>
-                <option value="custom_claude">自定义 (Claude 兼容)</option>
+              <optgroup label="Custom">
+                <option value="custom_openai">Custom (OpenAI-Compatible)</option>
+                <option value="custom_claude">Custom (Claude-Compatible)</option>
               </optgroup>
             </select>
           </div>
@@ -354,13 +354,13 @@
     <!-- Target Language -->
     <div class="section">
       <div class="section-header">
-        <div class="section-label">偏好设置</div>
+        <div class="section-label">Preferences</div>
       </div>
       <div class="card">
         <div class="card-row">
           <div>
-            <div class="card-row-label">目标语言</div>
-            <div class="card-row-desc">翻译输出语言</div>
+            <div class="card-row-label">Target Language</div>
+            <div class="card-row-desc">Translation output language</div>
           </div>
           <select class="input" id="targetLang" style="width: 150px;">
             <option value="zh-CN">简体中文</option>
@@ -380,7 +380,7 @@
           <polyline points="17 21 17 13 7 13 7 21"/>
           <polyline points="7 3 7 8 15 8"/>
         </svg>
-        <span>保存设置</span>
+        <span>Save Settings</span>
       </button>
     </div>
 
@@ -388,15 +388,15 @@
     <div class="danger-zone">
       <div class="section">
         <div class="section-header">
-          <div class="section-label">危险区域</div>
+          <div class="section-label">Danger Zone</div>
         </div>
         <div class="card danger">
           <div class="card-row">
             <div>
-              <div class="card-row-label">阅读历史</div>
-              <div class="card-row-desc">永久删除所有阅读记录</div>
+              <div class="card-row-label">Reading History</div>
+              <div class="card-row-desc">Permanently delete all reading records</div>
             </div>
-            <button class="btn-danger" id="btnClearHistory">清除</button>
+            <button class="btn-danger" id="btnClearHistory">Clear</button>
           </div>
         </div>
       </div>

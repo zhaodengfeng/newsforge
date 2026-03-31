@@ -4,20 +4,20 @@
 // Provider 配置表
 // ============================================
 const PROVIDERS = {
-  google:       { name: 'Google 翻译', type: 'free' },
-  microsoft:    { name: '微软翻译', type: 'free' },
+  google:       { name: 'Google Translate', type: 'free' },
+  microsoft:    { name: 'Microsoft Translator', type: 'free' },
   openai:       { name: 'OpenAI', type: 'openai', endpoint: 'https://api.openai.com/v1/chat/completions', model: 'gpt-4o-mini', models: ['gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo'] },
   deepseek:     { name: 'DeepSeek', type: 'openai', endpoint: 'https://api.deepseek.com/v1/chat/completions', model: 'deepseek-chat', models: ['deepseek-chat', 'deepseek-reasoner'] },
-  qwen:         { name: '阿里百炼', type: 'openai', endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', model: 'qwen-plus', models: ['qwen-turbo', 'qwen-plus', 'qwen-max'] },
+  qwen:         { name: 'Qwen', type: 'openai', endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', model: 'qwen-plus', models: ['qwen-turbo', 'qwen-plus', 'qwen-max'] },
   gemini:       { name: 'Gemini', type: 'openai', endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', model: 'gemini-2.0-flash', models: ['gemini-2.0-flash', 'gemini-2.5-pro-preview-05-06'] },
-  glm:          { name: 'GLM 智谱', type: 'openai', endpoint: 'https://open.bigmodel.cn/api/paas/v4/chat/completions', model: 'glm-4-flash', models: ['glm-4-flash', 'glm-4-air', 'glm-4-plus', 'glm-4'] },
+  glm:          { name: 'GLM', type: 'openai', endpoint: 'https://open.bigmodel.cn/api/paas/v4/chat/completions', model: 'glm-4-flash', models: ['glm-4-flash', 'glm-4-air', 'glm-4-plus', 'glm-4'] },
   minimax:      { name: 'MiniMax', type: 'openai', endpoint: 'https://api.minimax.chat/v1/text/chatcompletion_v2', model: 'MiniMax-Text-01', models: ['MiniMax-Text-01', 'abab6.5s-chat'] },
   kimi:         { name: 'Kimi', type: 'openai', endpoint: 'https://api.moonshot.cn/v1/chat/completions', model: 'moonshot-v1-8k', models: ['moonshot-v1-8k', 'moonshot-v1-32k', 'moonshot-v1-128k'] },
   xiaomi:       { name: 'Xiaomi', type: 'openai', endpoint: '', model: '' },
   claude:       { name: 'Claude', type: 'claude', endpoint: 'https://api.anthropic.com/v1/messages', model: 'claude-sonnet-4-20250514', models: ['claude-sonnet-4-20250514', 'claude-haiku-4-20250514', 'claude-opus-4-20250514'] },
   deepl:        { name: 'DeepL', type: 'deepl', endpoint: 'https://api.deepl.com/v2/translate' },
-  custom_openai:{ name: '自定义 (OpenAI)', type: 'openai', endpoint: '', model: '' },
-  custom_claude:{ name: '自定义 (Claude)', type: 'claude', endpoint: '', model: '' },
+  custom_openai:{ name: 'Custom (OpenAI)', type: 'openai', endpoint: '', model: '' },
+  custom_claude:{ name: 'Custom (Claude)', type: 'claude', endpoint: '', model: '' },
 };
 
 // ============================================
@@ -25,8 +25,8 @@ const PROVIDERS = {
 // ============================================
 chrome.runtime.onInstalled.addListener(() => {
   // 右键菜单
-  chrome.contextMenus.create({ id: 'newsforge-read', title: 'NewsForge - 阅读模式', contexts: ['page'] });
-  chrome.contextMenus.create({ id: 'newsforge-translate', title: 'NewsForge - 翻译此页', contexts: ['page'] });
+  chrome.contextMenus.create({ id: 'newsforge-read', title: 'NewsForge - Reader Mode', contexts: ['page'] });
+  chrome.contextMenus.create({ id: 'newsforge-translate', title: 'NewsForge - Translate this page', contexts: ['page'] });
 
   // 默认设置
   const defaults = {
@@ -172,7 +172,7 @@ async function microsoftTranslate(texts, targetLang) {
       msToken = await authResp.text();
       msTokenExpiry = Date.now() + 8 * 60 * 1000; // 8分钟有效期
     } catch (e) {
-      throw new Error('微软翻译认证失败，请稍后重试或切换其他翻译引擎');
+      throw new Error('Microsoft Translator auth failed, please try again or switch to another engine');
     }
   }
 
@@ -189,7 +189,7 @@ async function microsoftTranslate(texts, targetLang) {
   if (!response.ok) {
     // Token 可能过期，清除重试
     msToken = null;
-    throw new Error(`微软翻译错误: ${response.status}`);
+    throw new Error(`Microsoft Translator error: ${response.status}`);
   }
 
   const data = await response.json();
@@ -206,8 +206,8 @@ async function openaiTranslate(texts, targetLang, langName, provider) {
   const model = cfg.model || PROVIDERS[provider]?.model || '';
   const endpoint = cfg.endpoint || PROVIDERS[provider]?.endpoint || '';
 
-  if (!apiKey) throw new Error('请先在设置中配置 API Key');
-  if (!endpoint) throw new Error('请先在设置中配置 API Endpoint');
+  if (!apiKey) throw new Error('Please configure API Key in settings');
+  if (!endpoint) throw new Error('Please configure API Endpoint in settings');
 
   const systemPrompt = `You are a professional translator. Translate the following text to ${langName}. Rules:
 1. Keep the translation natural and fluent
@@ -239,7 +239,7 @@ async function openaiTranslate(texts, targetLang, langName, provider) {
 
   const data = await response.json();
   const content = data.choices?.[0]?.message?.content;
-  if (!content) throw new Error('API 返回为空');
+  if (!content) throw new Error('API returned empty response');
 
   let translations;
   try {
@@ -262,8 +262,8 @@ async function claudeTranslate(texts, targetLang, langName, provider) {
   const model = cfg.model || PROVIDERS[provider]?.model || '';
   const endpoint = cfg.endpoint || PROVIDERS[provider]?.endpoint || '';
 
-  if (!apiKey) throw new Error('请先在设置中配置 API Key');
-  if (!endpoint) throw new Error('请先在设置中配置 API Endpoint');
+  if (!apiKey) throw new Error('Please configure API Key in settings');
+  if (!endpoint) throw new Error('Please configure API Endpoint in settings');
 
   const systemPrompt = `You are a professional translator. Translate the following text to ${langName}. Rules:
 1. Keep the translation natural and fluent
@@ -297,7 +297,7 @@ async function claudeTranslate(texts, targetLang, langName, provider) {
 
   const data = await response.json();
   const content = data.content?.[0]?.text;
-  if (!content) throw new Error('Claude API 返回为空');
+  if (!content) throw new Error('Claude API returned empty response');
 
   let translations;
   try {
@@ -319,7 +319,7 @@ async function deeplTranslate(texts, targetLang, langName, provider) {
   const apiKey = cfg.apiKey;
   const endpoint = cfg.endpoint || PROVIDERS.deepl.endpoint;
 
-  if (!apiKey) throw new Error('请先在设置中配置 DeepL API Key');
+  if (!apiKey) throw new Error('Please configure DeepL API Key in settings');
 
   const deeplLang = targetLang === 'zh-CN' ? 'ZH' : targetLang === 'zh-TW' ? 'ZH' : targetLang.toUpperCase();
 

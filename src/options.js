@@ -10,11 +10,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Provider 配置表（与 background.js 同步）
   const PROVIDERS = {
-    google:       { name: 'Google 翻译', type: 'free' },
-    microsoft:    { name: '微软翻译', type: 'free' },
+    google:       { name: 'Google Translate', type: 'free' },
+    microsoft:    { name: 'Microsoft Translator', type: 'free' },
     openai:       { name: 'OpenAI', type: 'openai', endpoint: 'https://api.openai.com/v1/chat/completions', model: 'gpt-4o-mini', models: ['gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo'] },
     deepseek:     { name: 'DeepSeek', type: 'openai', endpoint: 'https://api.deepseek.com/v1/chat/completions', model: 'deepseek-chat', models: ['deepseek-chat', 'deepseek-reasoner'] },
-    qwen:         { name: '阿里百炼', type: 'openai', endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', model: 'qwen-plus', models: ['qwen-turbo', 'qwen-plus', 'qwen-max'] },
+    qwen:         { name: 'Qwen', type: 'openai', endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', model: 'qwen-plus', models: ['qwen-turbo', 'qwen-plus', 'qwen-max'] },
     gemini:       { name: 'Gemini', type: 'openai', endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', model: 'gemini-2.0-flash', models: ['gemini-2.0-flash', 'gemini-2.5-pro-preview-05-06'] },
     glm:          { name: 'GLM', type: 'openai', endpoint: 'https://open.bigmodel.cn/api/paas/v4/chat/completions', model: 'glm-4-flash', models: ['glm-4-flash', 'glm-4-air', 'glm-4-plus', 'glm-4'] },
     minimax:      { name: 'MiniMax', type: 'openai', endpoint: 'https://api.minimax.chat/v1/text/chatcompletion_v2', model: 'MiniMax-Text-01', models: ['MiniMax-Text-01', 'abab6.5s-chat'] },
@@ -22,8 +22,8 @@ document.addEventListener('DOMContentLoaded', () => {
     xiaomi:       { name: 'Xiaomi', type: 'openai', endpoint: '', model: '' },
     claude:       { name: 'Claude', type: 'claude', endpoint: 'https://api.anthropic.com/v1/messages', model: 'claude-sonnet-4-20250514', models: ['claude-sonnet-4-20250514', 'claude-haiku-4-20250514', 'claude-opus-4-20250514'] },
     deepl:        { name: 'DeepL', type: 'deepl', endpoint: 'https://api.deepl.com/v2/translate' },
-    custom_openai:{ name: '自定义 (OpenAI)', type: 'openai', endpoint: '', model: '' },
-    custom_claude:{ name: '自定义 (Claude)', type: 'claude', endpoint: '', model: '' },
+    custom_openai:{ name: 'Custom (OpenAI)', type: 'openai', endpoint: '', model: '' },
+    custom_claude:{ name: 'Custom (Claude)', type: 'claude', endpoint: '', model: '' },
   };
 
   // 渲染服务商配置面板
@@ -40,7 +40,7 @@ document.addEventListener('DOMContentLoaded', () => {
               <polyline points="22 4 12 14.01 9 11.01"/>
             </svg>
             <div style="font-weight:500; color:var(--text-secondary); margin-bottom:4px;">${info.name}</div>
-            <div style="font-size:12px;">免费翻译，无需配置 API Key</div>
+            <div style="font-size:12px;">Free translation, no API Key required</div>
           </div>
         </div>`;
       return;
@@ -56,25 +56,25 @@ document.addEventListener('DOMContentLoaded', () => {
     fieldsHtml += `
       <div class="field">
         <label class="field-label">API Key</label>
-        <input type="password" class="input" id="cfg_apiKey" value="${escapeAttr(savedApiKey)}" placeholder="输入 API Key">
+        <input type="password" class="input" id="cfg_apiKey" value="${escapeAttr(savedApiKey)}" placeholder="Enter API Key">
       </div>`;
 
     // Model
     if (info.models && info.models.length > 0) {
       fieldsHtml += `
         <div class="field">
-          <label class="field-label">模型</label>
+          <label class="field-label">Model</label>
           <input type="text" class="input" id="cfg_model" value="${escapeAttr(savedModel)}" list="modelList" placeholder="${info.model}">
           <datalist id="modelList">
             ${info.models.map(m => `<option value="${m}">`).join('')}
           </datalist>
-          <div class="field-hint">可从建议中选择或自行输入模型名称</div>
+          <div class="field-hint">Select from suggestions or enter model name</div>
         </div>`;
     } else {
       fieldsHtml += `
         <div class="field">
-          <label class="field-label">模型名称</label>
-          <input type="text" class="input" id="cfg_model" value="${escapeAttr(savedModel)}" placeholder="输入模型名称">
+          <label class="field-label">Model Name</label>
+          <input type="text" class="input" id="cfg_model" value="${escapeAttr(savedModel)}" placeholder="Enter model name">
         </div>`;
     }
 
@@ -82,11 +82,11 @@ document.addEventListener('DOMContentLoaded', () => {
     fieldsHtml += `
       <div class="field">
         <label class="field-label">API Endpoint</label>
-        <input type="text" class="input" id="cfg_endpoint" value="${escapeAttr(savedEndpoint)}" placeholder="${info.endpoint || '输入 API 地址'}">
-        ${info.endpoint ? '<div class="field-hint">可修改为自定义地址</div>' : ''}
+        <input type="text" class="input" id="cfg_endpoint" value="${escapeAttr(savedEndpoint)}" placeholder="${info.endpoint || 'Enter API endpoint'}">
+        ${info.endpoint ? '<div class="field-hint">Modify for custom endpoint</div>' : ''}
       </div>`;
 
-    const typeLabel = info.type === 'openai' ? 'OpenAI 兼容 API' : info.type === 'claude' ? 'Claude API 格式' : info.type === 'deepl' ? 'DeepL API' : '';
+    const typeLabel = info.type === 'openai' ? 'OpenAI-Compatible API' : info.type === 'claude' ? 'Claude API' : info.type === 'deepl' ? 'DeepL API' : '';
 
     providerConfig.innerHTML = `
       <div class="card">
@@ -159,10 +159,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 清除历史
   btnClearHistory.addEventListener('click', () => {
-    if (confirm('确定清除所有阅读历史？')) {
+    if (confirm('Clear all reading history?')) {
       chrome.storage.local.set({ history: [] }, () => {
-        btnClearHistory.textContent = '已清除';
-        setTimeout(() => { btnClearHistory.textContent = '清除'; }, 2000);
+        btnClearHistory.textContent = 'Cleared';
+        setTimeout(() => { btnClearHistory.textContent = 'Clear'; }, 2000);
       });
     }
   });

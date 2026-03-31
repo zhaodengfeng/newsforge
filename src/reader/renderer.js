@@ -34,8 +34,8 @@ const ReaderRenderer = {
         </div>
         <div class="nf-reader-actions">
           <select class="nf-select nf-translate-mode" title="翻译模式">
-            <option value="bilingual">双语</option>
-            <option value="target">译文</option>
+            <option value="bilingual">Bilingual</option>
+            <option value="target">Translation</option>
           </select>
           <button class="nf-btn nf-btn-translate" title="翻译全文">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

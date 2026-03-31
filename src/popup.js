@@ -14,17 +14,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     chrome.tabs.sendMessage(tab.id, { type: 'ping' }, (response) => {
       if (chrome.runtime.lastError || !response) {
-        statusText.textContent = '非支持站点';
+        statusText.textContent = 'Unsupported site';
         statusDot.classList.remove('active');
         return;
       }
 
       if (response.isArticle) {
-        statusText.textContent = `${response.adapter} · 文章页面`;
+        statusText.textContent = `${response.adapter} · Article`;
         statusDot.classList.add('active');
         btnRead.disabled = false;
       } else {
-        statusText.textContent = `${response.adapter || '未知'} · 非文章`;
+        statusText.textContent = `${response.adapter || 'Unknown'} · Not an article`;
       }
     });
   });
@@ -57,7 +57,7 @@ document.addEventListener('DOMContentLoaded', () => {
             <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
             <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
           </svg>
-          暂无阅读记录
+          No reading history
         </div>`;
       return;
     }
@@ -92,10 +92,10 @@ document.addEventListener('DOMContentLoaded', () => {
   function formatTime(ts) {
     if (!ts) return '';
     const diff = Date.now() - ts;
-    if (diff < 60000) return '刚刚';
-    if (diff < 3600000) return `${Math.floor(diff / 60000)} 分钟前`;
-    if (diff < 86400000) return `${Math.floor(diff / 3600000)} 小时前`;
-    return `${Math.floor(diff / 86400000)} 天前`;
+    if (diff < 60000) return 'Just now';
+    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+    return `${Math.floor(diff / 86400000)}d ago`;
   }
 
   function escapeHtml(text) {
