@@ -1,15 +1,20 @@
 {
   "manifest_version": 3,
-  "name": "NewsForge - 新闻阅读与翻译",
+  "name": "NewsForge - News Reader & Translator",
   "version": "26.3.31",
-  "description": "新闻站点干净阅读、AI翻译、图片/PDF分享。支持 Bloomberg、WSJ、NYTimes、FT、The Economist。",
+  "description": "Clean reading mode, AI translation, and screenshot/PDF sharing for news sites. Supports Bloomberg, WSJ, NYTimes, FT, and The Economist.",
   "permissions": [
     "storage",
     "activeTab",
     "contextMenus"
   ],
   "host_permissions": [
-    "<all_urls>"
+    "https://*.bloomberg.com/*",
+    "https://*.wsj.com/*",
+    "https://*.nytimes.com/*",
+    "https://*.nyt.com/*",
+    "https://*.ft.com/*",
+    "https://*.economist.com/*"
   ],
   "action": {
     "default_popup": "popup.html",
@@ -25,7 +30,12 @@
   "content_scripts": [
     {
       "matches": [
-        "<all_urls>"
+        "https://*.bloomberg.com/*",
+        "https://*.wsj.com/*",
+        "https://*.nytimes.com/*",
+        "https://*.nyt.com/*",
+        "https://*.ft.com/*",
+        "https://*.economist.com/*"
       ],
       "css": [
         "styles/content.css",
@@ -63,7 +73,12 @@
         "assets/*"
       ],
       "matches": [
-        "<all_urls>"
+        "https://*.bloomberg.com/*",
+        "https://*.wsj.com/*",
+        "https://*.nytimes.com/*",
+        "https://*.nyt.com/*",
+        "https://*.ft.com/*",
+        "https://*.economist.com/*"
       ]
     }
   ]
