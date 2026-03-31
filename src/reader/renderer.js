@@ -33,26 +33,26 @@ const ReaderRenderer = {
           ${article.date ? `<span class="nf-date">${article.date}</span>` : ''}
         </div>
         <div class="nf-reader-actions">
-          <select class="nf-select nf-translate-mode" title="翻译模式">
+          <select class="nf-select nf-translate-mode" title="Translation mode">
             <option value="bilingual">Bilingual</option>
             <option value="target">Translation</option>
           </select>
-          <button class="nf-btn nf-btn-translate" title="翻译全文">
+          <button class="nf-btn nf-btn-translate" title="Translate">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M5 8l6 6"/><path d="M4 14l6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/>
               <path d="M13 14l6-6"/><path d="M14 5l8 8"/><path d="M18 3l2 2"/><path d="M15 22l6-6"/>
             </svg>
-            <span>翻译</span>
+            <span>Translate</span>
           </button>
-          <button class="nf-btn nf-btn-screenshot" title="截图分享">
+          <button class="nf-btn nf-btn-screenshot" title="Screenshot">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <rect x="3" y="3" width="18" height="18" rx="2"/>
               <circle cx="8.5" cy="8.5" r="1.5"/>
               <path d="M21 15l-5-5L5 21"/>
             </svg>
-            <span>截图</span>
+            <span>Screenshot</span>
           </button>
-          <button class="nf-btn nf-btn-pdf" title="导出 PDF">
+          <button class="nf-btn nf-btn-pdf" title="Export PDF">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
               <polyline points="14 2 14 8 20 8"/>
@@ -61,7 +61,7 @@ const ReaderRenderer = {
             </svg>
             <span>PDF</span>
           </button>
-          <button class="nf-btn nf-btn-close" title="关闭 (Esc)">
+          <button class="nf-btn nf-btn-close" title="Close (Esc)">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <line x1="18" y1="6" x2="6" y2="18"/>
               <line x1="6" y1="6" x2="18" y2="18"/>
@@ -173,10 +173,10 @@ const ReaderRenderer = {
 
       if (isShowingOriginal) {
         paragraphs.forEach(p => p.classList.remove('nf-show-original'));
-        btn.querySelector('span').textContent = '显示原文';
+        btn.querySelector('span').textContent = 'Show Original';
       } else {
         paragraphs.forEach(p => p.classList.add('nf-show-original'));
-        btn.querySelector('span').textContent = '显示翻译';
+        btn.querySelector('span').textContent = 'Show Translation';
       }
       return;
     }
@@ -186,7 +186,7 @@ const ReaderRenderer = {
   async translateAll() {
     const btn = this.overlay.querySelector('.nf-btn-translate');
     btn.classList.add('nf-loading');
-    btn.querySelector('span').textContent = '翻译中...';
+    btn.querySelector('span').textContent = 'Translating...';
 
     const progressBar = this.overlay.querySelector('#nf-progress');
     const mode = this.getTranslateMode();
@@ -233,7 +233,7 @@ const ReaderRenderer = {
       }
 
       this.translated = true;
-      btn.querySelector('span').textContent = '显示原文';
+      btn.querySelector('span').textContent = 'Show Original';
       btn.classList.remove('nf-loading');
       setTimeout(() => {
         if (progressBar) {
@@ -243,10 +243,10 @@ const ReaderRenderer = {
       }, 800);
     } catch (err) {
       console.error('NewsForge translation error:', err);
-      btn.querySelector('span').textContent = '翻译';
+      btn.querySelector('span').textContent = 'Translate';
       btn.classList.remove('nf-loading');
       if (progressBar) progressBar.style.width = '0%';
-      this.showToast(err.message || '翻译失败');
+      this.showToast(err.message || 'Translation failed');
     }
   },
 
