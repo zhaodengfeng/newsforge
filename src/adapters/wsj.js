@@ -103,7 +103,27 @@ WSJAdapter.prototype.getParagraphs = function() {
   var endMarker = this._findArticleEndMarker(container);
 
   var elements = container.querySelectorAll('p, h2, h3, h4, img, figure');
-  for (var i = 0; i < elements.length; i++) {
+
+  // 找到 AI 摘要结束标记（"This summary was generated with AI"），跳过它及之前的所有内容
+  var startIdx = 0;
+  for (var si = 0; si < elements.length; si++) {
+    var sel = elements[si];
+    if (sel.tagName.toLowerCase() !== 'p') continue;
+    var stxt = (sel.innerText || '').trim();
+    if (/^this summary was generated with ai/i.test(stxt)) {
+      startIdx = si + 1;
+      // 同时把摘要中的重复首段加入 seen，避免正文第一段因重复被跳过
+      for (var sj = 0; sj < si; sj++) {
+        var selp = elements[sj];
+        if (selp.tagName.toLowerCase() !== 'p') continue;
+        var sjtxt = (selp.innerText || '').trim();
+        if (sjtxt.length >= 15) seen.add(sjtxt);
+      }
+      break;
+    }
+  }
+
+  for (var i = startIdx; i < elements.length; i++) {
     var el = elements[i];
 
     // 到达结束标记后停止
@@ -189,6 +209,8 @@ WSJAdapter.prototype.getParagraphs = function() {
 
     // 过滤版权
     if (/^copyright ©\d{4}/i.test(text)) continue;
+    // 过滤 "View more" 结尾的摘要链接
+    if (/view more$/i.test(text)) continue;
     // 过滤作者简介：提到 Journal/WSJ 且句式为 "Name is a reporter/correspondent..."
     if (/^\S.+?\bis (a |an )/i.test(text) && text.length < 600 && /\b(wall street journal|the journal|wsj)\b/i.test(text)) continue;
     if (/\b(before joining the journal|began (his|her) (journalism|career))\b/i.test(text)) continue;
