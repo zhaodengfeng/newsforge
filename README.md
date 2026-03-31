@@ -2,7 +2,7 @@
 
 A Chrome extension for clean reading, AI-powered translation, and screenshot/PDF sharing on news sites.
 
-[<img src="https://storage.googleapis.com/web-neoboard.appspot.com/img/chrome-web-store/badge2024/ChromeWebStore_Badge_v2_492x152.png" alt="Available in the Chrome Web Store" height="48">](https://chromewebstore.google.com/detail/newsforge-news-reader-tra/pcckppfeljmlhdpiflkokahokeccecjb)
+[<img src="https://developer.chrome.com/static/docs/webstore/branding/image/206x58-chrome-web-bcb82d15b2486.png" alt="Available in the Chrome Web Store" height="58">](https://chromewebstore.google.com/detail/newsforge-news-reader-tra/pcckppfeljmlhdpiflkokahokeccecjb)
 
 ## Supported Sites
 
