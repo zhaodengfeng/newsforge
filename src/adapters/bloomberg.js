@@ -129,10 +129,27 @@ BloombergAdapter.prototype.getParagraphs = function() {
 
     if (el.closest('nav, header, footer, aside, [class*="newsletter"], [class*="promo"], [class*="signup"], [class*="marketing"], [class*="ad-slot"], [class*="in-article-ad"]')) continue;
 
+    // Skip any content inside Bloomberg chart/infographic wrappers
+    if (el.closest('dvz-ai2html-wrapper')) continue;
+
     var tagName = el.tagName.toLowerCase();
 
     // 图片
     if (tagName === 'img' || tagName === 'figure') {
+      // Skip Bloomberg chart/infographic content entirely (dvz-ai2html-wrapper)
+      // Check BEFORE finding img, because charts may contain fallback images
+      var isChart = tagName === 'figure' && el.querySelector('dvz-ai2html-wrapper');
+      var isInChart = tagName === 'img' && el.closest('dvz-ai2html-wrapper');
+      if (isChart || isInChart) {
+        if (isChart) {
+          el.querySelectorAll('h2, h3, h4').forEach(function(h) {
+            var ht = (h.innerText || '').trim();
+            if (ht) seen.add(ht);
+          });
+        }
+        continue;
+      }
+
       var img = tagName === 'img' ? el : el.querySelector('img');
       if (!img) continue;
       // 优先取 data-* 属性中的真实 URL，跳过 data: 占位符
@@ -194,6 +211,8 @@ BloombergAdapter.prototype.getParagraphs = function() {
 
     // 文本
     if (el.closest('figcaption')) continue;
+    // Skip headings inside figure elements (chart titles, handled by figure logic above)
+    if (tagName.startsWith('h') && el.closest('figure')) continue;
     var text = (el.innerText || '').trim();
     if (text.length < 15) continue;
     if (seen.has(text)) continue;
