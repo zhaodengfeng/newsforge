@@ -91,11 +91,28 @@
       if (ReaderRenderer.active && !document.getElementById('newsforge-reader')) {
         ReaderRenderer.active = false;
         ReaderRenderer.translated = false;
-        if (floatIcon) floatIcon.style.display = '';
+        if (floatIcon) floatIcon.classList.remove('nf-hidden');
       }
       openReader();
     });
     document.body.appendChild(floatIcon);
+
+    // Auto-recovery: restore icon if reader overlay is gone but icon stays hidden
+    setInterval(function() {
+      if (!floatIcon) return;
+      if (floatIcon.classList.contains('nf-hidden') && !document.getElementById('newsforge-reader')) {
+        floatIcon.classList.remove('nf-hidden');
+        ReaderRenderer.active = false;
+        ReaderRenderer.translated = false;
+      }
+      // Re-append if removed from DOM by page scripts
+      if (!document.body.contains(floatIcon)) {
+        document.body.appendChild(floatIcon);
+        floatIcon.classList.remove('nf-hidden');
+        ReaderRenderer.active = false;
+        ReaderRenderer.translated = false;
+      }
+    }, 3000);
   }
 
   function openReader(retryCount) {
@@ -135,10 +152,10 @@
       return;
     }
 
-    if (floatIcon) floatIcon.style.display = 'none';
+    if (floatIcon) floatIcon.classList.add('nf-hidden');
 
     ReaderRenderer.onClose = () => {
-      if (floatIcon) floatIcon.style.display = '';
+      if (floatIcon) floatIcon.classList.remove('nf-hidden');
     };
 
     ReaderRenderer.render({

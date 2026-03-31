@@ -5,9 +5,9 @@
    Float Icon
    ============================================ */
 .nf-float-icon {
-  position: fixed;
-  bottom: 28px;
-  right: 28px;
+  position: fixed !important;
+  bottom: 28px !important;
+  right: 28px !important;
   width: 54px;
   height: 54px;
   border-radius: 16px;
@@ -16,12 +16,17 @@
     0 4px 16px rgba(26, 24, 21, 0.25),
     0 0 0 1px rgba(255, 255, 255, 0.05) inset;
   cursor: pointer;
-  z-index: 2147483647;
-  display: flex;
+  z-index: 2147483647 !important;
+  display: flex !important;
   align-items: center;
   justify-content: center;
   transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
   animation: icon-appear 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* Our own hide class — only way to hide the icon */
+.nf-float-icon.nf-hidden {
+  display: none !important;
 }
 
 @keyframes icon-appear {
