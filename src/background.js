@@ -113,7 +113,8 @@ async function handleTranslate({ texts, from, to }) {
   const settings = await chrome.storage.local.get(['translationProvider', 'targetLang']);
   const provider = settings.translationProvider || 'google';
   const targetLang = to || settings.targetLang || 'zh-CN';
-  const langName = targetLang === 'zh-CN' ? 'Simplified Chinese' : targetLang === 'zh-TW' ? 'Traditional Chinese' : targetLang;
+  const LANG_NAMES = { 'zh-CN': 'Simplified Chinese', 'zh-TW': 'Traditional Chinese', 'en': 'English', 'ja': 'Japanese', 'ko': 'Korean', 'fr': 'French', 'de': 'German', 'es': 'Spanish', 'ru': 'Russian', 'pt': 'Portuguese', 'it': 'Italian', 'ar': 'Arabic' };
+  const langName = LANG_NAMES[targetLang] || targetLang;
 
   switch (provider) {
     case 'google':
