@@ -311,7 +311,25 @@ body.nf-reader-active [id*="VideoPlayer"] {
 }
 
 .nf-paragraph.nf-translating {
-  opacity: 0.5;
+  opacity: 0.6;
+}
+
+/* Shimmer loading animation for pending translations */
+.nf-translating::after {
+  content: '';
+  display: block;
+  margin-top: 10px;
+  width: 60%;
+  height: 16px;
+  background: linear-gradient(90deg, var(--border-subtle) 25%, var(--bg) 50%, var(--border-subtle) 75%);
+  background-size: 200% 100%;
+  border-radius: 3px;
+  animation: nf-shimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes nf-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
 /* ============================================

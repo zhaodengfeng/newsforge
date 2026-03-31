@@ -185,50 +185,83 @@ const ReaderRenderer = {
   async translateAll() {
     const btn = this.overlay.querySelector('.nf-btn-translate');
     btn.classList.add('nf-loading');
-    btn.querySelector('span').textContent = 'Translating...';
 
     const progressBar = this.overlay.querySelector('#nf-progress');
     const mode = this.getTranslateMode();
     const titleEl = this.overlay.querySelector('.nf-title');
 
-    // 收集所有可翻译元素：标题 + 副标题 + 段落
-    const allElements = [];
-    if (titleEl?.dataset.original) allElements.push(titleEl);
-    this.overlay.querySelectorAll('.nf-heading[data-original]').forEach(el => allElements.push(el));
-    this.overlay.querySelectorAll('.nf-paragraph[data-original]').forEach(el => allElements.push(el));
+    // Collect body elements in DOM order
+    const bodyElements = [];
+    this.overlay.querySelectorAll('.nf-heading[data-original], .nf-paragraph[data-original]')
+      .forEach(el => bodyElements.push(el));
 
-    const texts = allElements.map(el => el.dataset.original);
+    const total = (titleEl?.dataset.original ? 1 : 0) + bodyElements.length;
+    if (total === 0) {
+      btn.querySelector('span').textContent = 'Translate';
+      btn.classList.remove('nf-loading');
+      this.showToast('Nothing to translate');
+      return;
+    }
+
+    let completed = 0;
+
+    // Show shimmer animation on all untranslated body elements
+    bodyElements.forEach(el => el.classList.add('nf-translating'));
+
+    const applyTranslation = (el, translation) => {
+      if (!el || !translation) return;
+      el.innerHTML = `<span class="nf-original">${this.escapeHtml(el.dataset.original)}</span>
+                     <span class="nf-translation">${this.escapeHtml(translation)}</span>`;
+      el.classList.remove('nf-translating');
+      el.classList.add('nf-translated');
+      const isTitle = el.classList.contains('nf-title');
+      const isHeading = el.classList.contains('nf-heading');
+      if (isTitle || isHeading) el.classList.add('nf-title-like');
+      if (mode === 'target') el.classList.add('nf-target-only');
+    };
+
+    const updateProgress = () => {
+      completed++;
+      btn.querySelector('span').textContent = `Translating ${completed}/${total}...`;
+      if (progressBar) progressBar.style.width = Math.min((completed / total) * 100, 100) + '%';
+    };
 
     try {
-      const total = texts.length;
-      const chunkSize = 10;
-
-      for (let i = 0; i < texts.length; i += chunkSize) {
-        const chunk = texts.slice(i, i + chunkSize);
+      // Step 1: Translate title first for immediate feedback
+      if (titleEl?.dataset.original) {
+        btn.querySelector('span').textContent = `Translating 1/${total}...`;
         const response = await chrome.runtime.sendMessage({
           type: 'translate',
-          data: { texts: chunk, from: 'en', to: 'zh-CN' }
+          data: { texts: [titleEl.dataset.original], from: 'en', to: 'zh-CN' }
+        });
+        if (response?.error) throw new Error(response.error);
+        if (response?.translations?.[0]) {
+          applyTranslation(titleEl, response.translations[0]);
+        }
+        updateProgress();
+      }
+
+      // Step 2: Translate body in small chunks, render as they arrive
+      const chunkSize = 3;
+      const bodyTexts = bodyElements.map(el => el.dataset.original);
+
+      for (let i = 0; i < bodyElements.length; i += chunkSize) {
+        const chunkTexts = bodyTexts.slice(i, i + chunkSize);
+        const chunkEls = bodyElements.slice(i, i + chunkSize);
+
+        const response = await chrome.runtime.sendMessage({
+          type: 'translate',
+          data: { texts: chunkTexts, from: 'en', to: 'zh-CN' }
         });
 
-        if (response && response.error) throw new Error(response.error);
+        if (response?.error) throw new Error(response.error);
 
-        if (response && response.translations) {
+        if (response?.translations) {
           response.translations.forEach((translation, idx) => {
-            const el = allElements[i + idx];
-            if (el && translation) {
-              const isTitle = el.classList.contains('nf-title');
-              const isHeading = el.classList.contains('nf-heading');
-              el.innerHTML = `<span class="nf-original">${this.escapeHtml(el.dataset.original)}</span>
-                             <span class="nf-translation">${this.escapeHtml(translation)}</span>`;
-              el.classList.add('nf-translated');
-              if (isTitle || isHeading) el.classList.add('nf-title-like');
-              if (mode === 'target') el.classList.add('nf-target-only');
-            }
+            applyTranslation(chunkEls[idx], translation);
+            updateProgress();
           });
         }
-
-        const progress = Math.min(((i + chunkSize) / total) * 100, 100);
-        if (progressBar) progressBar.style.width = progress + '%';
       }
 
       this.translated = true;
@@ -245,6 +278,7 @@ const ReaderRenderer = {
       btn.querySelector('span').textContent = 'Translate';
       btn.classList.remove('nf-loading');
       if (progressBar) progressBar.style.width = '0%';
+      bodyElements.forEach(el => el.classList.remove('nf-translating'));
       this.showToast(err.message || 'Translation failed');
     }
   },
