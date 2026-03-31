@@ -55,7 +55,7 @@ BaseAdapter.prototype.getPublishDate = function() {
     if (el) {
       const datetime = el.getAttribute('datetime') || el.getAttribute('content');
       if (datetime) return new Date(datetime).toLocaleDateString('zh-CN');
-      const text = el.innerText.trim();
+      const text = (el.innerText || '').trim();
       if (text.length > 4 && text.length < 50) return text;
     }
   }

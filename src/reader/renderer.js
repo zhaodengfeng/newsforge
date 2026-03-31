@@ -87,7 +87,9 @@ const ReaderRenderer = {
       </div>
     `;
 
-    document.body.appendChild(this.overlay);
+    // Append to <html> (same as float icon) to avoid page scripts
+    // that aggressively clean up body children (e.g. WSJ)
+    document.documentElement.appendChild(this.overlay);
     // 隐藏页面上的视频播放器
     document.body.classList.add('nf-reader-active');
     this.bindEvents();
@@ -136,11 +138,8 @@ const ReaderRenderer = {
     this.translated = false;
     document.body.classList.remove('nf-reader-active');
     if (this.overlay) {
-      this.overlay.style.animation = 'nf-reader-out 0.25s ease forwards';
-      setTimeout(() => {
-        this.overlay?.remove();
-        this.overlay = null;
-      }, 250);
+      this.overlay.remove();
+      this.overlay = null;
     }
     if (this._escHandler) {
       document.removeEventListener('keydown', this._escHandler);

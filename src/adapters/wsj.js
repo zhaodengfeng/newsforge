@@ -61,7 +61,7 @@ WSJAdapter.prototype._findArticleEndMarker = function(container) {
     var text = (allEls[i].innerText || '').trim();
     if (text.length > 100) continue;
     var lower = text.toLowerCase();
-    if (/^(what to read next|most popular|trending now|you may also like|more from|recommended|related stories|popular on wsj|readers also|from the archive|sponsor content|content provided by|this explanatory article)/.test(lower)) {
+    if (/^(what to read next|most popular|trending now|you may also like|more from|recommended|related stories|popular on wsj|readers also|from the archive|sponsor content|content provided by|this explanatory article|free expression)/.test(lower)) {
       return allEls[i];
     }
   }
@@ -75,10 +75,11 @@ WSJAdapter.prototype._findArticleEndMarker = function(container) {
 WSJAdapter.prototype._normalizeImgUrl = function(url) {
   if (!url) return '';
   var path = url.replace(/^https?:\/\/[^\/]+/, '').split('?')[0].split('#')[0];
+  // WSJ im 图片: /im-12345/social → /im-12345 (只保留图片 ID)
+  var imMatch = path.match(/^(\/im-\d+)/i);
+  if (imMatch) return imMatch[1];
   // 去掉 _NNNpx 后缀（WSJ ai2html 图片的不同分辨率版本）
   path = path.replace(/_\d+px(\.[a-z]+)?$/i, '$1');
-  // 去掉 /social /web 等后缀路径段（WSJ im 图片）
-  path = path.replace(/\/(social|web)$/, '');
   return path;
 };
 
@@ -165,8 +166,8 @@ WSJAdapter.prototype.getParagraphs = function() {
       var imgKey = this._normalizeImgUrl(src);
       if (seenImgKeys.has(imgKey)) continue;
       seenImgKeys.add(imgKey);
-      // 头图区域容器过滤：hero/featured/lead 区的图片视为头图
-      if (img.closest('[class*="hero"], [class*="featured"], [class*="lead-image"], [class*="main-image"], [class*="topper-image"], [class*="article-top-image"], [class*="headline-image"]')) continue;
+      // 头图区域容器过滤：hero/featured/lead/topper 区的图片视为头图
+      if (img.closest('[class*="hero"], [class*="featured"], [class*="lead-image"], [class*="main-image"], [class*="topper-image"], [class*="article-top-image"], [class*="headline-image"], [class*="top-image"], [class*="topper"], [class*="articleTopper"], [class*="article-hero"]')) continue;
       var w = img.naturalWidth || img.width || 0;
       var h = img.naturalHeight || img.height || 0;
       if (w > 0 && w <= 200) continue;
@@ -225,6 +226,8 @@ WSJAdapter.prototype.getParagraphs = function() {
     if (/^(sign up|subscribe|newsletter|what to read next|most popular)/i.test(text)) continue;
     if (/^this explanatory article/i.test(text)) continue;
     if (/^content provided by/i.test(text)) continue;
+    // WSJ Opinion: "Free Expression" newsletter promo
+    if (/^free expression\b/i.test(text)) continue;
     // 过滤 "X hours/days ago" 行（相关文章的时间戳）
     if (/^\d+\s+(hours?|days?|minutes?)\s+ago$/i.test(text)) continue;
     // 过滤 "Plus, ..." 开头的推广行

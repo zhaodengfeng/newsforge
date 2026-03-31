@@ -54,10 +54,15 @@ BloombergAdapter.prototype.getFeaturedImage = function() {
 // 找到"正文结束"的位置——在此之后的内容全部丢弃
 // 策略：找 "More from Bloomberg" / "Related" 等标题，取其在 DOM 中最早出现的位置
 BloombergAdapter.prototype._findArticleEndMarker = function() {
-  var allEls = document.querySelectorAll('h2, h3, h4, [role="heading"], a[href]');
+  var allEls = document.querySelectorAll('h2, h3, h4, [role="heading"], a[href], p');
   for (var i = 0; i < allEls.length; i++) {
     var text = (allEls[i].innerText || '').trim().toLowerCase();
+    if (text.length > 150) continue;
     if (/^(more from bloomberg|related stories|most read|trending now|you might also|more stories|recommended for you)/.test(text)) {
+      return allEls[i];
+    }
+    // Bloomberg "Get Alerts for:" section — signals end of article body
+    if (/^get alerts for\b/i.test(text)) {
       return allEls[i];
     }
   }
@@ -229,6 +234,9 @@ BloombergAdapter.prototype.getParagraphs = function() {
     // 过滤 Bloomberg AI 摘要区
     if (/takeaways.*bloomberg ai|bloomberg ai.*takeaways/i.test(text)) continue;
     if (/^(hide|show|takeaways)$/i.test(text)) continue;
+    // Bloomberg "Get Alerts for:" 推广
+    if (/^get alerts for\b/i.test(text)) break;
+    if (/^sign up for notifications/i.test(text)) break;
 
     seen.add(text);
     paragraphs.push({
@@ -250,7 +258,7 @@ BloombergAdapter.prototype.getParagraphs = function() {
       if (seen.has(text2)) continue;
       if (el2.closest('nav, footer, aside')) continue;
       var t2Lower = text2.toLowerCase();
-      if (/^(more from bloomberg|related|recommended|trending|you might)/.test(t2Lower)) break;
+      if (/^(more from bloomberg|related|recommended|trending|you might|get alerts for)/.test(t2Lower)) break;
       seen.add(text2);
       paragraphs.push({ type: 'text', level: 0, text: text2 });
     }

@@ -86,42 +86,84 @@
       <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
     </svg>`;
 
-    floatIcon.addEventListener('click', () => {
-      // Recovery: if reader state is stale (active but overlay gone), reset and restore icon
-      if (ReaderRenderer.active && !document.getElementById('newsforge-reader')) {
-        ReaderRenderer.active = false;
-        ReaderRenderer.translated = false;
-        if (floatIcon) floatIcon.classList.remove('nf-hidden');
+    floatIcon.addEventListener('click', function(e) {
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      console.log('[NewsForge] icon clicked, active:', ReaderRenderer.active);
+      if (ReaderRenderer.active) {
+        ReaderRenderer.close();
+        return;
       }
+      var staleOverlay = document.getElementById('newsforge-reader');
+      if (staleOverlay) staleOverlay.remove();
+      ReaderRenderer.active = false;
+      ReaderRenderer.translated = false;
+      ReaderRenderer.overlay = null;
+      floatIcon.classList.remove('nf-hidden');
+      console.log('[NewsForge] state reset, calling openReader');
       openReader();
-    });
-    document.body.appendChild(floatIcon);
+    }, true);
 
-    // Auto-recovery: restore icon if reader overlay is gone but icon stays hidden
+    // Append to <html> instead of <body> — avoids body transform/filter
+    // breaking position:fixed, and stays above paywall overlays in body
+    document.documentElement.appendChild(floatIcon);
+
+    // MutationObserver: keep icon as last child of <html> so it's always
+    // on top (DOM order wins for equal z-index)
+    var _iconGuard = new MutationObserver(function() {
+      if (!floatIcon) return;
+      if (!document.documentElement.contains(floatIcon)) {
+        document.documentElement.appendChild(floatIcon);
+        return;
+      }
+      if (document.documentElement.lastElementChild !== floatIcon) {
+        document.documentElement.appendChild(floatIcon);
+      }
+      // Only clean up stale state — if active is true the reader is supposed
+      // to be open; the overlay guard (_nfOverlayGuard) will re-append it.
+      if (!ReaderRenderer.active) {
+        if (floatIcon.classList.contains('nf-hidden')) {
+          floatIcon.classList.remove('nf-hidden');
+        }
+      }
+    });
+    _iconGuard.observe(document.documentElement, { childList: true });
+    _iconGuard.observe(document.body, { childList: true, subtree: false });
+
+    // Fallback: periodic recovery for pages where MutationObserver is insufficient
     setInterval(function() {
       if (!floatIcon) return;
-      if (floatIcon.classList.contains('nf-hidden') && !document.getElementById('newsforge-reader')) {
-        floatIcon.classList.remove('nf-hidden');
-        ReaderRenderer.active = false;
-        ReaderRenderer.translated = false;
+      // Re-append if removed
+      if (!document.documentElement.contains(floatIcon)) {
+        document.documentElement.appendChild(floatIcon);
       }
-      // Re-append if removed from DOM by page scripts
-      if (!document.body.contains(floatIcon)) {
-        document.body.appendChild(floatIcon);
-        floatIcon.classList.remove('nf-hidden');
-        ReaderRenderer.active = false;
-        ReaderRenderer.translated = false;
+      // Ensure on top (last child)
+      if (document.documentElement.lastElementChild !== floatIcon) {
+        document.documentElement.appendChild(floatIcon);
       }
-    }, 3000);
+      // Only clean up stale state — same logic as _iconGuard above
+      if (!ReaderRenderer.active) {
+        if (floatIcon.classList.contains('nf-hidden')) {
+          floatIcon.classList.remove('nf-hidden');
+        }
+      }
+    }, 2000);
   }
 
   function openReader(retryCount) {
+    console.log('[NewsForge] openReader called, active:', ReaderRenderer.active);
     if (ReaderRenderer.active) return;
+    // Clean up any stale overlay reference from previous sessions
+    if (ReaderRenderer.overlay) {
+      ReaderRenderer.overlay.remove();
+      ReaderRenderer.overlay = null;
+    }
     retryCount = retryCount || 0;
 
     var paragraphs;
     try {
       paragraphs = currentAdapter.getParagraphs();
+      console.log('[NewsForge] paragraphs:', paragraphs.length);
     } catch (e) {
       console.error('[NewsForge] getParagraphs error:', e);
       if (retryCount < 2) {
@@ -158,15 +200,35 @@
       if (floatIcon) floatIcon.classList.remove('nf-hidden');
     };
 
-    ReaderRenderer.render({
-      title: currentAdapter.getTitle(),
-      author: currentAdapter.getAuthor(),
-      date: currentAdapter.getPublishDate(),
-      source: currentAdapter.name.charAt(0).toUpperCase() + currentAdapter.name.slice(1),
-      url: currentAdapter._pageURL || getPageURL(),
-      paragraphs: paragraphs,
-      featuredImage: currentAdapter.getFeaturedImage()
-    });
+    try {
+      ReaderRenderer.render({
+        title: currentAdapter.getTitle(),
+        author: currentAdapter.getAuthor(),
+        date: currentAdapter.getPublishDate(),
+        source: currentAdapter.name.charAt(0).toUpperCase() + currentAdapter.name.slice(1),
+        url: currentAdapter._pageURL || getPageURL(),
+        paragraphs: paragraphs,
+        featuredImage: currentAdapter.getFeaturedImage()
+      });
+      console.log('[NewsForge] render() completed, active:', ReaderRenderer.active, 'overlay in DOM:', !!document.getElementById('newsforge-reader'));
+    } catch (renderErr) {
+      console.error('[NewsForge] render() error:', renderErr);
+      if (floatIcon) floatIcon.classList.remove('nf-hidden');
+      return;
+    }
+
+    // Guard: re-append overlay if page scripts remove it (e.g. WSJ)
+    // Overlay lives on documentElement, same as the float icon
+    if (!window._nfOverlayGuard) {
+      window._nfOverlayGuard = new MutationObserver(function(mutations) {
+        if (!ReaderRenderer.active || !ReaderRenderer.overlay) return;
+        if (!document.documentElement.contains(ReaderRenderer.overlay)) {
+          console.log('[NewsForge] Overlay removed externally, re-appending');
+          document.documentElement.appendChild(ReaderRenderer.overlay);
+        }
+      });
+      window._nfOverlayGuard.observe(document.documentElement, { childList: true });
+    }
   }
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
