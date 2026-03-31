@@ -59,8 +59,11 @@ FTAdapter.prototype._findArticleEndMarker = function() {
   // 只在 article 容器内搜索，避免 header/sidebar 中的匹配导致正文被截断
   var scope = document.querySelector('article') || this.getContentContainer() || document;
   var allEls = scope.querySelectorAll('h2, h3, h4, [role="heading"], a[href], p');
-  for (var i = 0; i < allEls.length; i++) {
+  var total = allEls.length;
+  for (var i = 0; i < total; i++) {
     var text = (allEls[i].innerText || '').trim().toLowerCase();
+    // recommended 只在后 30% 视为结束标记（文章中间的 recommended 块跳过）
+    if (i < total * 0.7 && /^(recommended)$/.test(text)) continue;
     if (/^(managing risk and opportunity|get ahead with daily|keep up with|follow the topics|more from the ft|related|recommended|popular in|more stories|explore the ft|try premium|myft|copyright|newsletter|sign up|subscribe|understanding the most|signed in as|edit commenting|show comments)/.test(text)) {
       return allEls[i];
     }
@@ -220,7 +223,8 @@ FTAdapter.prototype.getParagraphs = function() {
       if (seen.has(text2)) continue;
       if (el2.closest('nav, footer, aside')) continue;
       var t2Lower = text2.toLowerCase();
-      if (/^(managing risk|get ahead|keep up|more from|related|recommended|sign up|subscribe|newsletter)/.test(t2Lower)) break;
+      if (/^(managing risk|get ahead|keep up|more from the ft|related|popular in|more stories|explore the ft|try premium|myft|sign up|subscribe|newsletter|understanding the most|signed in as|edit commenting|show comments)/.test(t2Lower)) break;
+      if (/^recommended$/i.test(text2)) continue; // 中间的 recommended 块跳过而非截断
       seen.add(text2);
       paragraphs.push({ type: 'text', level: 0, text: text2 });
     }
