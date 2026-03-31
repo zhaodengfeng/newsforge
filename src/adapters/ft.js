@@ -93,7 +93,7 @@ FTAdapter.prototype.getParagraphs = function() {
       if (pos & Node.DOCUMENT_POSITION_FOLLOWING) break;
     }
 
-    if (el.closest('nav, header, footer, aside, [class*="ad"], [class*="sponsor"], [class*="newsletter"], [class*="promo"], [class*="related"], [class*="article-info"], [class*="byline"], [class*="timestamp"], [class*="meta"]')) continue;
+    if (el.closest('nav, header, footer, aside, [class*="ad-slot"], [class*="ad-container"], [class*="in-article-ad"], [class*="-ad-"], [class*="advert"], [class*="sponsor"], [class*="newsletter"], [class*="promo"], [class*="related"], [class*="article-info"], [class*="byline"], [class*="timestamp"], [class*="meta"]')) continue;
 
     var tagName = el.tagName.toLowerCase();
 

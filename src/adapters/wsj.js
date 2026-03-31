@@ -133,7 +133,7 @@ WSJAdapter.prototype.getParagraphs = function() {
       if (pos & Node.DOCUMENT_POSITION_FOLLOWING) break;
     }
 
-    if (el.closest('nav, header, footer, aside, video, [class*="newsletter"], [class*="promo"], [class*="ad"], [class*="sponsor"], [class*="related"], [class*="most"], [class*="video"]')) continue;
+    if (el.closest('nav, header, footer, aside, video, [class*="newsletter"], [class*="promo"], [class*="ad-slot"], [class*="ad-container"], [class*="in-article-ad"], [class*="-ad-"], [class*="advert"], [class*="sponsor"], [class*="related"], [class*="most"], [class*="video"]')) continue;
 
     var tagName = el.tagName.toLowerCase();
 

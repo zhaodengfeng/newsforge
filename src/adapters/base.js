@@ -75,7 +75,7 @@ BaseAdapter.prototype.getParagraphs = function() {
     if (!text || text.length < 10) return;
     if (seen.has(text)) return;
     if (el.closest('pre, code, nav, header, footer, aside')) return;
-    const parent = el.closest('[class*="ad"], [class*="sponsor"], [class*="recommend"], [class*="related"], [class*="newsletter"]');
+    const parent = el.closest('[class*="ad-slot"], [class*="ad-container"], [class*="in-article-ad"], [class*="-ad-"], [class*="advert"], [class*="sponsor"], [class*="recommend"], [class*="related"], [class*="newsletter"]');
     if (parent) return;
 
     seen.add(text);
