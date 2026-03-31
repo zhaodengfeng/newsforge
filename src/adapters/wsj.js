@@ -135,6 +135,12 @@ WSJAdapter.prototype.getParagraphs = function() {
 
     if (el.closest('nav, header, footer, aside, video, [class*="newsletter"], [class*="promo"], [class*="ad-slot"], [class*="ad-container"], [class*="in-article-ad"], [class*="-ad-"], [class*="advert"], [class*="sponsor"], [class*="related"], [class*="most"], [class*="video"]')) continue;
 
+    // Skip WSJ rich media (ai2html charts/infographics)
+    if (el.closest('.ai2html_export, .djai2html-foot')) continue;
+
+    // Skip WSJ author bio section
+    if (el.closest('[data-testid="author-module-bio"], [class*="AuthorModuleBio"]')) continue;
+
     var tagName = el.tagName.toLowerCase();
 
     // 图片
@@ -211,11 +217,10 @@ WSJAdapter.prototype.getParagraphs = function() {
     if (/^copyright ©\d{4}/i.test(text)) continue;
     // 过滤 "View more" 结尾的摘要链接
     if (/view more$/i.test(text)) continue;
-    // 过滤作者简介：提到 Journal/WSJ 且句式为 "Name is a reporter/correspondent..."
-    if (/^\S.+?\bis (a |an )/i.test(text) && text.length < 600 && /\b(wall street journal|the journal|wsj)\b/i.test(text)) continue;
+    // 过滤作者简介（正则兜底，主要靠容器过滤 AuthorModuleBio）
+    if (/^\S.+?\bis (a |an |chief |senior |executive |deputy |the )/i.test(text) && text.length < 600 && /\b(wall street journal|the journal|wsj)\b/i.test(text)) continue;
     if (/\b(before joining the journal|began (his|her) (journalism|career))\b/i.test(text)) continue;
     if (/\b(her|his) work has (won|earned|been)\b/i.test(text) && /\b(journalism|award|prize)\b/i.test(text)) continue;
-    if (/^(previously she|previously he) (worked|was)/i.test(text)) continue;
     // 过滤推广
     if (/^(sign up|subscribe|newsletter|what to read next|most popular)/i.test(text)) continue;
     if (/^this explanatory article/i.test(text)) continue;

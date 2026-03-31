@@ -86,7 +86,15 @@
       <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
     </svg>`;
 
-    floatIcon.addEventListener('click', () => openReader());
+    floatIcon.addEventListener('click', () => {
+      // Recovery: if reader state is stale (active but overlay gone), reset and restore icon
+      if (ReaderRenderer.active && !document.getElementById('newsforge-reader')) {
+        ReaderRenderer.active = false;
+        ReaderRenderer.translated = false;
+        if (floatIcon) floatIcon.style.display = '';
+      }
+      openReader();
+    });
     document.body.appendChild(floatIcon);
   }
 
@@ -94,7 +102,22 @@
     if (ReaderRenderer.active) return;
     retryCount = retryCount || 0;
 
-    const paragraphs = currentAdapter.getParagraphs();
+    var paragraphs;
+    try {
+      paragraphs = currentAdapter.getParagraphs();
+    } catch (e) {
+      console.error('[NewsForge] getParagraphs error:', e);
+      if (retryCount < 2) {
+        setTimeout(function() { openReader(retryCount + 1); }, 2000);
+        return;
+      }
+      const toast = document.createElement('div');
+      toast.className = 'nf-toast';
+      toast.textContent = 'Error extracting article: ' + (e.message || '');
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 4000);
+      return;
+    }
     console.log('[NewsForge] Paragraphs found:', paragraphs.length);
 
     if (paragraphs.length === 0) {
