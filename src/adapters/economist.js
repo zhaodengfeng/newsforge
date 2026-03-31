@@ -184,7 +184,8 @@ EconomistAdapter.prototype.getParagraphs = function() {
     if (text.length < 15) continue;
     if (seen.has(text)) continue;
 
-    if (/^(sign up|subscribe|newsletter|explore more|more from|related|recommended|keep updated|more on this)/i.test(text)) continue;
+    if (/^explore more/i.test(text)) break;
+    if (/^(sign up|subscribe|newsletter|more from|related|recommended|keep updated|more on this)/i.test(text)) continue;
     if (/^copyright/i.test(text)) continue;
     if (/^\d+\s+(hours?|days?|minutes?)\s+ago$/i.test(text)) continue;
     if (/^(articles?|audio)\s+(updated|recorded)\s+\d+/i.test(text)) continue;
