@@ -151,6 +151,10 @@ class FTAdapter extends BaseAdapter {
       if (text.length < 15) continue;
       if (seen.has(text)) continue;
 
+      // Filter interactive sections and video embeds
+      if (/^share your thoughts$/i.test(text)) continue;
+      if (/join the conversation/i.test(text)) continue;
+      if (/^watch:/i.test(text)) continue;
       if (/^(published|updated|first published)\s*/i.test(text) && /\b(ago|yesterday|\d{4})\b/i.test(text)) continue;
       if (/^get ahead with daily|^keep up with|^stay informed|^follow the topics/i.test(text)) continue;
       if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)) continue;

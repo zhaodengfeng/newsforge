@@ -112,7 +112,7 @@ class WSJAdapter extends BaseAdapter {
         if (pos & Node.DOCUMENT_POSITION_FOLLOWING) break;
       }
 
-      if (el.closest('nav, header, footer, aside, video, [class*="newsletter"], [class*="promo"], [class*="ad-slot"], [class*="ad-container"], [class*="in-article-ad"], [class*="-ad-"], [class*="advert"], [class*="sponsor"], [class*="related"], [class*="most"], [class*="video"]')) continue;
+      if (el.closest('nav, header, footer, aside, video, [class*="newsletter"], [class*="promo"], [class*="ad-slot"], [class*="ad-container"], [class*="in-article-ad"], [class*="-ad-"], [class*="advert"], [class*="sponsor"], [class*="related"], [class*="most"], [class*="video"], [class*="share-your-thoughts"], [class*="ShareYourThoughts"], [class*="opinion-question"]')) continue;
       if (el.closest('.ai2html_export, .djai2html-foot')) continue;
       if (el.closest('[data-testid="author-module-bio"], [class*="AuthorModuleBio"]')) continue;
 
@@ -164,6 +164,11 @@ class WSJAdapter extends BaseAdapter {
 
       if (/^copyright ©\d{4}/i.test(text)) continue;
       if (/view more$/i.test(text)) continue;
+      // Filter "SHARE YOUR THOUGHTS" interactive section
+      if (/^share your thoughts$/i.test(text)) continue;
+      if (/join the conversation/i.test(text)) continue;
+      // Filter embedded video headings ("Watch: ...")
+      if (/^watch:/i.test(text)) continue;
       if (/^\S.+?\bis (a |an |chief |senior |executive |deputy |the )/i.test(text) && text.length < 600 && /\b(wall street journal|the journal|wsj)\b/i.test(text)) continue;
       if (/\b(before joining the journal|began (his|her) (journalism|career))\b/i.test(text)) continue;
       if (/\b(her|his) work has (won|earned|been)\b/i.test(text) && /\b(journalism|award|prize)\b/i.test(text)) continue;
