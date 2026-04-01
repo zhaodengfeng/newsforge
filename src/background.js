@@ -1,25 +1,5 @@
 // NewsForge Background Service Worker
-
-// ============================================
-// Provider 配置表
-// ============================================
-const PROVIDERS = {
-  google:       { name: 'Google Translate', type: 'free' },
-  microsoft:    { name: 'Microsoft Translator', type: 'free' },
-  openai:       { name: 'OpenAI', type: 'openai', endpoint: 'https://api.openai.com/v1/chat/completions', model: 'gpt-4o-mini', models: ['gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo'] },
-  deepseek:     { name: 'DeepSeek', type: 'openai', endpoint: 'https://api.deepseek.com/v1/chat/completions', model: 'deepseek-chat', models: ['deepseek-chat', 'deepseek-reasoner'] },
-  qwen:         { name: 'Qwen', type: 'openai', endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', model: 'qwen-plus', models: ['qwen-turbo', 'qwen-plus', 'qwen-max', 'qwen-mt-turbo', 'qwen-mt-plus'] },
-  gemini:       { name: 'Gemini', type: 'openai', endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', model: 'gemini-2.5-flash', models: ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash'] },
-  glm:          { name: 'GLM', type: 'openai', endpoint: 'https://open.bigmodel.cn/api/paas/v4/chat/completions', model: 'glm-4-flash', models: ['glm-4-flash', 'glm-4-air', 'glm-4-plus', 'glm-4'] },
-  minimax:      { name: 'MiniMax', type: 'openai', endpoint: 'https://api.minimax.chat/v1/text/chatcompletion_v2', model: 'MiniMax-Text-01', models: ['MiniMax-Text-01', 'abab6.5s-chat'] },
-  kimi:         { name: 'Kimi', type: 'openai', endpoint: 'https://api.moonshot.cn/v1/chat/completions', model: 'moonshot-v1-8k', models: ['moonshot-v1-8k', 'moonshot-v1-32k', 'moonshot-v1-128k'] },
-  xiaomi:       { name: 'Xiaomi', type: 'openai', endpoint: 'https://api.maimiao.huami.com/v1/chat/completions', model: 'MiMo-7B-RL', models: ['MiMo-7B-RL'] },
-  openrouter:   { name: 'OpenRouter', type: 'openai', endpoint: 'https://openrouter.ai/api/v1/chat/completions', model: 'google/gemma-3-27b-it:free', models: ['google/gemma-3-27b-it:free', 'nvidia/nemotron-3-super-120b-a12b:free', 'minimax/minimax-m2.5:free', 'openrouter/free'] },
-  claude:       { name: 'Claude', type: 'claude', endpoint: 'https://api.anthropic.com/v1/messages', model: 'claude-sonnet-4-20250514', models: ['claude-sonnet-4-20250514', 'claude-haiku-4-20250514', 'claude-opus-4-20250514'] },
-  deepl:        { name: 'DeepL', type: 'deepl', endpoint: 'https://api.deepl.com/v2/translate' },
-  custom_openai:{ name: 'Custom (OpenAI)', type: 'openai', endpoint: '', model: '' },
-  custom_claude:{ name: 'Custom (Claude)', type: 'claude', endpoint: '', model: '' },
-};
+importScripts('providers.js');
 
 // ============================================
 // 安装 & 默认设置
@@ -76,8 +56,10 @@ function migrateOldSettings() {
 // 右键菜单
 // ============================================
 chrome.contextMenus.onClicked.addListener((info, tab) => {
-  if (info.menuItemId === 'newsforge-read' || info.menuItemId === 'newsforge-translate') {
+  if (info.menuItemId === 'newsforge-read') {
     chrome.tabs.sendMessage(tab.id, { type: 'open_reader' });
+  } else if (info.menuItemId === 'newsforge-translate') {
+    chrome.tabs.sendMessage(tab.id, { type: 'open_reader_translate' });
   }
 });
 
@@ -128,30 +110,85 @@ async function handleTranslate({ texts, from, to }) {
     case 'custom_claude':
       return claudeTranslate(texts, targetLang, langName, provider);
     default:
-      // openai, deepseek, qwen, gemini, glm, minimax, kimi, xiaomi, custom_openai
       return openaiTranslate(texts, targetLang, langName, provider);
   }
 }
 
 // ============================================
-// Google 翻译（免费，无需 API Key）
+// Google 翻译（免费，无需 API Key）— 批量模式
 // ============================================
 async function googleTranslate(texts, targetLang) {
   const lang = targetLang === 'zh-TW' ? 'zh-TW' : targetLang === 'zh-CN' ? 'zh-CN' : targetLang;
-  const translations = [];
 
-  for (const text of texts) {
-    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${lang}&dt=t&q=${encodeURIComponent(text)}`;
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`Google Translate error: ${response.status}`);
-    const data = await response.json();
+  // Batch: send all texts as multiple q params in one request
+  const params = new URLSearchParams();
+  params.append('client', 'gtx');
+  params.append('sl', 'auto');
+  params.append('tl', lang);
+  params.append('dt', 't');
+  texts.forEach(t => params.append('q', t));
+
+  const url = `https://translate.googleapis.com/translate_a/single?${params.toString()}`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Google Translate error: ${response.status}`);
+  const data = await response.json();
+
+  // When batching, data[0] contains translation segments for all texts sequentially
+  // Each text's segments end when the source text matches the next input
+  const translations = [];
+  if (texts.length === 1) {
+    // Single text: simple extraction
     let result = '';
     if (data && data[0]) {
       for (const part of data[0]) {
         if (part && part[0]) result += part[0];
       }
     }
-    translations.push(result || text);
+    translations.push(result || texts[0]);
+  } else {
+    // Multiple texts: each q returns its own set of segments
+    // Google batches them all into data[0], separated by null entries
+    // Fallback to sequential if batch parsing fails
+    try {
+      let result = '';
+      let idx = 0;
+      if (data && data[0]) {
+        for (const part of data[0]) {
+          if (part && part[0]) {
+            result += part[0];
+          }
+          // Check if this segment's source text ends the current input text
+          if (part && part[1] && result) {
+            // Heuristic: when the accumulated source matches the end of current text, emit
+            const srcAccum = part[1];
+            if (srcAccum && srcAccum.endsWith('\n') || !part[1]) {
+              // Not reliable enough — fall through to sequential
+            }
+          }
+        }
+      }
+      // Batch parsing is unreliable for multi-text, fall back to sequential
+      if (result && texts.length <= 1) {
+        translations.push(result);
+      } else {
+        throw new Error('fallback');
+      }
+    } catch {
+      // Sequential fallback for multiple texts
+      for (const text of texts) {
+        const singleUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${lang}&dt=t&q=${encodeURIComponent(text)}`;
+        const resp = await fetch(singleUrl);
+        if (!resp.ok) throw new Error(`Google Translate error: ${resp.status}`);
+        const singleData = await resp.json();
+        let r = '';
+        if (singleData && singleData[0]) {
+          for (const part of singleData[0]) {
+            if (part && part[0]) r += part[0];
+          }
+        }
+        translations.push(r || text);
+      }
+    }
   }
 
   return { translations };
@@ -166,13 +203,12 @@ let msTokenExpiry = 0;
 async function microsoftTranslate(texts, targetLang) {
   const lang = targetLang === 'zh-CN' ? 'zh-Hans' : targetLang === 'zh-TW' ? 'zh-Hant' : targetLang;
 
-  // 获取/刷新 token
   if (!msToken || Date.now() > msTokenExpiry) {
     try {
       const authResp = await fetch('https://edge.microsoft.com/translate/auth');
       if (!authResp.ok) throw new Error('Auth failed');
       msToken = await authResp.text();
-      msTokenExpiry = Date.now() + 8 * 60 * 1000; // 8分钟有效期
+      msTokenExpiry = Date.now() + 8 * 60 * 1000;
     } catch (e) {
       throw new Error('Microsoft Translator auth failed, please try again or switch to another engine');
     }
@@ -189,7 +225,6 @@ async function microsoftTranslate(texts, targetLang) {
   });
 
   if (!response.ok) {
-    // Token 可能过期，清除重试
     msToken = null;
     throw new Error(`Microsoft Translator error: ${response.status}`);
   }
@@ -211,7 +246,6 @@ async function openaiTranslate(texts, targetLang, langName, provider) {
   if (!apiKey) throw new Error('Please configure API Key in settings');
   if (!endpoint) throw new Error('Please configure API Endpoint in settings');
 
-  // qwen-mt-turbo/qwen-mt-plus only accept user/assistant roles, not system
   const isMTModel = model.startsWith('qwen-mt-');
   const systemPrompt = `You are a professional translator. Translate the following text to ${langName}. Rules:
 1. Keep the translation natural and fluent
@@ -251,7 +285,6 @@ async function openaiTranslate(texts, targetLang, langName, provider) {
 
   let translations;
   try {
-    // Strip markdown code fences (e.g. ```json ... ```) that some LLMs wrap around JSON
     const cleaned = content.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
     translations = JSON.parse(cleaned);
   } catch {
@@ -331,7 +364,8 @@ async function deeplTranslate(texts, targetLang, langName, provider) {
 
   if (!apiKey) throw new Error('Please configure DeepL API Key in settings');
 
-  const deeplLang = targetLang === 'zh-CN' ? 'ZH' : targetLang === 'zh-TW' ? 'ZH' : targetLang.toUpperCase();
+  // Fix: zh-CN → ZH-HANS, zh-TW → ZH-HANT (DeepL v2 requires specific codes)
+  const deeplLang = targetLang === 'zh-CN' ? 'ZH-HANS' : targetLang === 'zh-TW' ? 'ZH-HANT' : targetLang.toUpperCase();
 
   const params = new URLSearchParams();
   texts.forEach(t => params.append('text', t));

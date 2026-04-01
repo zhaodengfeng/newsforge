@@ -5,6 +5,7 @@
   let currentAdapter = null;
   let floatIcon = null;
   let adapters = [];
+  let _iconRecoveryTimer = null;
 
   function createAdapters() {
     try {
@@ -59,11 +60,10 @@
   }
 
   function onReady() {
-    // 多次检测，适应 SPA 延迟渲染
-    var delays = [1500, 3500, 6000];
-    var injected = false;
-    delays.forEach(function(delay) {
-      setTimeout(function() {
+    const delays = [1500, 3500, 6000];
+    let injected = false;
+    delays.forEach(delay => {
+      setTimeout(() => {
         if (injected) return;
         if (currentAdapter && currentAdapter.isArticlePage()) {
           console.log('[NewsForge] Article page detected, injecting icon (after ' + delay + 'ms)');
@@ -86,7 +86,7 @@
       <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
     </svg>`;
 
-    floatIcon.addEventListener('click', function(e) {
+    floatIcon.addEventListener('click', (e) => {
       e.stopPropagation();
       e.stopImmediatePropagation();
       console.log('[NewsForge] icon clicked, active:', ReaderRenderer.active);
@@ -94,7 +94,7 @@
         ReaderRenderer.close();
         return;
       }
-      var staleOverlay = document.getElementById('newsforge-reader');
+      const staleOverlay = document.getElementById('newsforge-reader');
       if (staleOverlay) staleOverlay.remove();
       ReaderRenderer.active = false;
       ReaderRenderer.translated = false;
@@ -104,13 +104,10 @@
       openReader();
     }, true);
 
-    // Append to <html> instead of <body> — avoids body transform/filter
-    // breaking position:fixed, and stays above paywall overlays in body
     document.documentElement.appendChild(floatIcon);
 
-    // MutationObserver: keep icon as last child of <html> so it's always
-    // on top (DOM order wins for equal z-index)
-    var _iconGuard = new MutationObserver(function() {
+    // MutationObserver: keep icon as last child of <html>
+    const _iconGuard = new MutationObserver(() => {
       if (!floatIcon) return;
       if (!document.documentElement.contains(floatIcon)) {
         document.documentElement.appendChild(floatIcon);
@@ -119,8 +116,6 @@
       if (document.documentElement.lastElementChild !== floatIcon) {
         document.documentElement.appendChild(floatIcon);
       }
-      // Only clean up stale state — if active is true the reader is supposed
-      // to be open; the overlay guard (_nfOverlayGuard) will re-append it.
       if (!ReaderRenderer.active) {
         if (floatIcon.classList.contains('nf-hidden')) {
           floatIcon.classList.remove('nf-hidden');
@@ -130,18 +125,15 @@
     _iconGuard.observe(document.documentElement, { childList: true });
     _iconGuard.observe(document.body, { childList: true, subtree: false });
 
-    // Fallback: periodic recovery for pages where MutationObserver is insufficient
-    setInterval(function() {
+    // Fallback: periodic recovery (save ID for cleanup)
+    _iconRecoveryTimer = setInterval(() => {
       if (!floatIcon) return;
-      // Re-append if removed
       if (!document.documentElement.contains(floatIcon)) {
         document.documentElement.appendChild(floatIcon);
       }
-      // Ensure on top (last child)
       if (document.documentElement.lastElementChild !== floatIcon) {
         document.documentElement.appendChild(floatIcon);
       }
-      // Only clean up stale state — same logic as _iconGuard above
       if (!ReaderRenderer.active) {
         if (floatIcon.classList.contains('nf-hidden')) {
           floatIcon.classList.remove('nf-hidden');
@@ -150,24 +142,24 @@
     }, 2000);
   }
 
-  function openReader(retryCount) {
+  function openReader(options) {
+    const autoTranslate = options?.autoTranslate || false;
     console.log('[NewsForge] openReader called, active:', ReaderRenderer.active);
     if (ReaderRenderer.active) return;
-    // Clean up any stale overlay reference from previous sessions
     if (ReaderRenderer.overlay) {
       ReaderRenderer.overlay.remove();
       ReaderRenderer.overlay = null;
     }
-    retryCount = retryCount || 0;
+    const retryCount = options?.retryCount || 0;
 
-    var paragraphs;
+    let paragraphs;
     try {
       paragraphs = currentAdapter.getParagraphs();
       console.log('[NewsForge] paragraphs:', paragraphs.length);
     } catch (e) {
       console.error('[NewsForge] getParagraphs error:', e);
       if (retryCount < 2) {
-        setTimeout(function() { openReader(retryCount + 1); }, 2000);
+        setTimeout(() => openReader({ retryCount: retryCount + 1, autoTranslate }), 2000);
         return;
       }
       const toast = document.createElement('div');
@@ -180,10 +172,9 @@
     console.log('[NewsForge] Paragraphs found:', paragraphs.length);
 
     if (paragraphs.length === 0) {
-      // SPA 可能还在加载，重试最多 2 次
       if (retryCount < 2) {
         console.log('[NewsForge] No content yet, retrying in 2s...');
-        setTimeout(function() { openReader(retryCount + 1); }, 2000);
+        setTimeout(() => openReader({ retryCount: retryCount + 1, autoTranslate }), 2000);
         return;
       }
       const toast = document.createElement('div');
@@ -196,8 +187,14 @@
 
     if (floatIcon) floatIcon.classList.add('nf-hidden');
 
+    // Save the original onClose to chain cleanup
     ReaderRenderer.onClose = () => {
       if (floatIcon) floatIcon.classList.remove('nf-hidden');
+      // Disconnect overlay guard when reader closes
+      if (window._nfOverlayGuard) {
+        window._nfOverlayGuard.disconnect();
+        window._nfOverlayGuard = null;
+      }
     };
 
     try {
@@ -211,16 +208,20 @@
         featuredImage: currentAdapter.getFeaturedImage()
       });
       console.log('[NewsForge] render() completed, active:', ReaderRenderer.active, 'overlay in DOM:', !!document.getElementById('newsforge-reader'));
+
+      // Auto-trigger translation if requested (from context menu "Translate")
+      if (autoTranslate) {
+        setTimeout(() => ReaderRenderer.translateAll(), 300);
+      }
     } catch (renderErr) {
       console.error('[NewsForge] render() error:', renderErr);
       if (floatIcon) floatIcon.classList.remove('nf-hidden');
       return;
     }
 
-    // Guard: re-append overlay if page scripts remove it (e.g. WSJ)
-    // Overlay lives on documentElement, same as the float icon
+    // Guard: re-append overlay if page scripts remove it
     if (!window._nfOverlayGuard) {
-      window._nfOverlayGuard = new MutationObserver(function(mutations) {
+      window._nfOverlayGuard = new MutationObserver(() => {
         if (!ReaderRenderer.active || !ReaderRenderer.overlay) return;
         if (!document.documentElement.contains(ReaderRenderer.overlay)) {
           console.log('[NewsForge] Overlay removed externally, re-appending');
@@ -234,6 +235,10 @@
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === 'open_reader') {
       openReader();
+      sendResponse({ ok: true });
+    }
+    if (msg.type === 'open_reader_translate') {
+      openReader({ autoTranslate: true });
       sendResponse({ ok: true });
     }
     if (msg.type === 'ping') {
@@ -258,7 +263,6 @@
       selectAdapter(url);
       onReady();
     } else {
-      // Fallback: ask background for the tab URL
       console.log('[NewsForge] URL not available locally, requesting from background');
       chrome.runtime.sendMessage({ type: 'get_tab_url' }, (resp) => {
         if (resp && resp.url) {

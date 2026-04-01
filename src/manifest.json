@@ -49,7 +49,6 @@
         "adapters/ft.js",
         "adapters/economist.js",
         "reader/renderer.js",
-        "reader/translator.js",
         "lib/html2canvas.min.js",
         "lib/jspdf.umd.min.js",
         "content.js"

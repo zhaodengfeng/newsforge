@@ -5,6 +5,7 @@ const ReaderRenderer = {
   overlay: null,
   translated: false,
   onClose: null,
+  _targetLang: 'zh-CN',
 
   render(article) {
     this.article = article;
@@ -87,10 +88,7 @@ const ReaderRenderer = {
       </div>
     `;
 
-    // Append to <html> (same as float icon) to avoid page scripts
-    // that aggressively clean up body children (e.g. WSJ)
     document.documentElement.appendChild(this.overlay);
-    // 隐藏页面上的视频播放器
     document.body.classList.add('nf-reader-active');
     this.bindEvents();
 
@@ -120,7 +118,6 @@ const ReaderRenderer = {
     this.overlay.querySelector('.nf-btn-screenshot').addEventListener('click', () => this.takeScreenshot());
     this.overlay.querySelector('.nf-btn-pdf').addEventListener('click', () => this.exportPDF());
 
-    // 翻译模式切换：已翻译时实时切换显示
     this.overlay.querySelector('.nf-translate-mode').addEventListener('change', (e) => {
       if (this.translated) {
         this.applyTranslateMode(e.target.value);
@@ -166,7 +163,6 @@ const ReaderRenderer = {
   handleTranslateClick() {
     if (this.translated) {
       const btn = this.overlay.querySelector('.nf-btn-translate');
-      const titleEl = this.overlay.querySelector('.nf-title');
       const paragraphs = this.overlay.querySelectorAll('.nf-translated');
       const isShowingOriginal = paragraphs[0]?.classList.contains('nf-show-original');
 
@@ -190,6 +186,17 @@ const ReaderRenderer = {
     const mode = this.getTranslateMode();
     const titleEl = this.overlay.querySelector('.nf-title');
 
+    // Read target language from storage
+    try {
+      const settings = await new Promise(resolve =>
+        chrome.storage.local.get('targetLang', resolve)
+      );
+      this._targetLang = settings.targetLang || 'zh-CN';
+    } catch (e) {
+      // fallback to default
+    }
+    const targetLang = this._targetLang;
+
     // Collect body elements in DOM order
     const bodyElements = [];
     this.overlay.querySelectorAll('.nf-heading[data-original], .nf-paragraph[data-original]')
@@ -205,7 +212,6 @@ const ReaderRenderer = {
 
     let completed = 0;
 
-    // Show shimmer animation on all untranslated body elements
     bodyElements.forEach(el => el.classList.add('nf-translating'));
 
     const applyTranslation = (el, translation) => {
@@ -232,7 +238,7 @@ const ReaderRenderer = {
         btn.querySelector('span').textContent = `Translating 1/${total}...`;
         const response = await chrome.runtime.sendMessage({
           type: 'translate',
-          data: { texts: [titleEl.dataset.original], from: 'en', to: 'zh-CN' }
+          data: { texts: [titleEl.dataset.original], from: 'en', to: targetLang }
         });
         if (response?.error) throw new Error(response.error);
         if (response?.translations?.[0]) {
@@ -251,7 +257,7 @@ const ReaderRenderer = {
 
         const response = await chrome.runtime.sendMessage({
           type: 'translate',
-          data: { texts: chunkTexts, from: 'en', to: 'zh-CN' }
+          data: { texts: chunkTexts, from: 'en', to: targetLang }
         });
 
         if (response?.error) throw new Error(response.error);
@@ -293,120 +299,126 @@ const ReaderRenderer = {
     setTimeout(() => toast.remove(), 4000);
   },
 
-  // 截图：clone + 内联样式，尊重翻译模式
-  async takeScreenshot() {
+  // ========== Shared export clone logic ==========
+
+  // Create a styled clone of .nf-reader-content for screenshot/PDF export
+  _createExportClone(mode) {
     const content = this.overlay.querySelector('.nf-reader-content');
-    if (!content || typeof html2canvas === 'undefined') return;
+    if (!content) return null;
+
+    const clone = content.cloneNode(true);
+    clone.style.cssText = `
+      position: absolute; left: -9999px; top: 0;
+      width: 680px; padding: 56px 32px 80px;
+      background: #faf8f5; color: #1a1815;
+      font-family: 'Source Serif 4', Georgia, 'Noto Serif SC', serif;
+      line-height: 1.8;
+    `;
+
+    const origDisplay = mode === 'target' ? 'display:none;' : 'display:block;';
+    const cnSans = '"Noto Sans SC","PingFang SC","Microsoft YaHei",-apple-system,sans-serif';
+    const cnSerif = '"Noto Serif SC","Source Han Serif SC","SimSun",Georgia,serif';
+
+    const styleMap = {
+      '.nf-title': `font-size:38px;font-weight:700;line-height:1.2;margin:0 0 24px;color:#1a1815;letter-spacing:-0.5px;font-family:${cnSerif};`,
+      '.nf-meta': 'display:flex;align-items:center;gap:20px;margin-bottom:40px;padding-bottom:32px;border-bottom:1px solid #e8e4df;',
+      '.nf-author': `font-family:${cnSans};font-size:14px;font-weight:500;color:#5a5651;`,
+      '.nf-heading': `font-size:24px;font-weight:600;margin:44px 0 20px;color:#1a1815;letter-spacing:-0.2px;padding-top:12px;border-top:2px solid #c45d3e;display:inline-block;font-family:${cnSerif};`,
+      '.nf-paragraph': 'font-size:18px;line-height:1.9;margin:0 0 28px;color:#5a5651;',
+      '.nf-original': origDisplay + 'color:#5a5651;margin-bottom:0;',
+      '.nf-translation': `display:block;font-family:${cnSans};font-size:18px;line-height:1.9;color:#a84d32;margin-top:10px;`,
+      '.nf-featured-image': 'margin:0 -32px 40px;padding:0;',
+      '.nf-featured-image img': 'width:100%;height:auto;display:block;border-radius:12px;',
+      '.nf-article-image': 'margin:32px -16px;padding:0;',
+      '.nf-article-image img': 'width:100%;height:auto;display:block;border-radius:8px;',
+      '.nf-article-image figcaption': `font-family:${cnSans};font-size:13px;color:#9a958e;margin-top:10px;padding:0 16px;line-height:1.5;`,
+      '.nf-body': 'margin-top:32px;',
+    };
+
+    for (const [selector, styles] of Object.entries(styleMap)) {
+      clone.querySelectorAll(selector).forEach(el => {
+        el.style.cssText += styles;
+      });
+    }
+    for (const [selector, styles] of Object.entries(styleMap)) {
+      if (clone.matches && clone.matches(selector)) {
+        clone.style.cssText += styles;
+      }
+    }
+
+    // 标题内的翻译恢复标题字号和字体
+    clone.querySelectorAll('.nf-title .nf-translation').forEach(el => {
+      el.style.fontSize = '38px';
+      el.style.fontWeight = '700';
+      el.style.lineHeight = '1.2';
+      el.style.fontFamily = cnSerif;
+      el.style.letterSpacing = '-0.5px';
+      el.style.marginTop = '12px';
+    });
+    clone.querySelectorAll('.nf-title .nf-original').forEach(el => {
+      el.style.fontSize = '38px';
+      el.style.fontWeight = '700';
+      el.style.lineHeight = '1.2';
+      el.style.fontFamily = cnSerif;
+      el.style.letterSpacing = '-0.5px';
+    });
+    // 副标题翻译恢复副标题字号
+    clone.querySelectorAll('.nf-heading .nf-original').forEach(el => {
+      el.style.fontSize = '24px';
+      el.style.fontWeight = '600';
+      el.style.lineHeight = '1.3';
+      el.style.fontFamily = cnSerif;
+      el.style.marginTop = '0';
+    });
+    clone.querySelectorAll('.nf-heading .nf-translation').forEach(el => {
+      el.style.fontSize = '24px';
+      el.style.fontWeight = '600';
+      el.style.lineHeight = '1.3';
+      el.style.fontFamily = cnSerif;
+      el.style.color = '#a84d32';
+      el.style.marginTop = '8px';
+    });
+
+    // 译文模式：段落内的译文样式融入正文
+    if (mode === 'target') {
+      clone.querySelectorAll('.nf-paragraph .nf-translation').forEach(el => {
+        el.style.fontSize = '18px';
+        el.style.lineHeight = '1.9';
+        el.style.color = '#5a5651';
+        el.style.marginTop = '0';
+      });
+      clone.querySelectorAll('.nf-title .nf-translation').forEach(el => {
+        el.style.color = '#1a1815';
+      });
+      clone.querySelectorAll('.nf-heading .nf-translation').forEach(el => {
+        el.style.color = '#1a1815';
+        el.style.marginTop = '0';
+      });
+    }
+
+    // 文末添加原文链接
+    if (this.article?.url) {
+      const urlBar = document.createElement('div');
+      urlBar.className = 'nf-source-url';
+      urlBar.textContent = this.article.url.split('?')[0];
+      urlBar.style.cssText = `margin-top:48px;padding-top:20px;border-top:1px solid #e8e4df;font-family:${cnSans};font-size:12px;color:#9a958e;line-height:1.5;word-break:break-all;`;
+      clone.appendChild(urlBar);
+    }
+
+    return clone;
+  },
+
+  // 截图
+  async takeScreenshot() {
+    if (typeof html2canvas === 'undefined') return;
 
     const btn = this.overlay.querySelector('.nf-btn-screenshot');
     btn.classList.add('nf-loading');
     const mode = this.getTranslateMode();
 
     try {
-      const clone = content.cloneNode(true);
-      clone.style.cssText = `
-        position: absolute; left: -9999px; top: 0;
-        width: 680px; padding: 56px 32px 80px;
-        background: #faf8f5; color: #1a1815;
-        font-family: 'Source Serif 4', Georgia, 'Noto Serif SC', serif;
-        line-height: 1.8;
-      `;
-
-      // 根据翻译模式决定原文是否显示
-      const origDisplay = mode === 'target' ? 'display:none;' : 'display:block;';
-
-      // 中文字体栈
-      const cnSans = '"Noto Sans SC","PingFang SC","Microsoft YaHei",-apple-system,sans-serif';
-      const cnSerif = '"Noto Serif SC","Source Han Serif SC","SimSun",Georgia,serif';
-
-      const styleMap = {
-        '.nf-title': `font-size:38px;font-weight:700;line-height:1.2;margin:0 0 24px;color:#1a1815;letter-spacing:-0.5px;font-family:${cnSerif};`,
-        '.nf-meta': 'display:flex;align-items:center;gap:20px;margin-bottom:40px;padding-bottom:32px;border-bottom:1px solid #e8e4df;',
-        '.nf-author': `font-family:${cnSans};font-size:14px;font-weight:500;color:#5a5651;`,
-        '.nf-heading': `font-size:24px;font-weight:600;margin:44px 0 20px;color:#1a1815;letter-spacing:-0.2px;padding-top:12px;border-top:2px solid #c45d3e;display:inline-block;font-family:${cnSerif};`,
-        '.nf-paragraph': 'font-size:18px;line-height:1.9;margin:0 0 28px;color:#5a5651;',
-        '.nf-original': origDisplay + 'color:#5a5651;margin-bottom:0;',
-        '.nf-translation': `display:block;font-family:${cnSans};font-size:18px;line-height:1.9;color:#a84d32;margin-top:10px;`,
-        '.nf-featured-image': 'margin:0 -32px 40px;padding:0;',
-        '.nf-featured-image img': 'width:100%;height:auto;display:block;border-radius:12px;',
-        '.nf-article-image': 'margin:32px -16px;padding:0;',
-        '.nf-article-image img': 'width:100%;height:auto;display:block;border-radius:8px;',
-        '.nf-article-image figcaption': `font-family:${cnSans};font-size:13px;color:#9a958e;margin-top:10px;padding:0 16px;line-height:1.5;`,
-        '.nf-body': 'margin-top:32px;',
-      };
-
-      for (const [selector, styles] of Object.entries(styleMap)) {
-        clone.querySelectorAll(selector).forEach(el => {
-          el.style.cssText += styles;
-        });
-      }
-      for (const [selector, styles] of Object.entries(styleMap)) {
-        if (clone.matches && clone.matches(selector)) {
-          clone.style.cssText += styles;
-        }
-      }
-
-      // 标题内的翻译恢复标题字号和字体
-      clone.querySelectorAll('.nf-title .nf-translation').forEach(el => {
-        el.style.fontSize = '38px';
-        el.style.fontWeight = '700';
-        el.style.lineHeight = '1.2';
-        el.style.fontFamily = cnSerif;
-        el.style.letterSpacing = '-0.5px';
-        el.style.marginTop = '12px';
-      });
-      clone.querySelectorAll('.nf-title .nf-original').forEach(el => {
-        el.style.fontSize = '38px';
-        el.style.fontWeight = '700';
-        el.style.lineHeight = '1.2';
-        el.style.fontFamily = cnSerif;
-        el.style.letterSpacing = '-0.5px';
-      });
-      // 副标题翻译恢复副标题字号
-      clone.querySelectorAll('.nf-heading .nf-original').forEach(el => {
-        el.style.fontSize = '24px';
-        el.style.fontWeight = '600';
-        el.style.lineHeight = '1.3';
-        el.style.fontFamily = cnSerif;
-        el.style.marginTop = '0';
-      });
-      clone.querySelectorAll('.nf-heading .nf-translation').forEach(el => {
-        el.style.fontSize = '24px';
-        el.style.fontWeight = '600';
-        el.style.lineHeight = '1.3';
-        el.style.fontFamily = cnSerif;
-        el.style.color = '#a84d32';
-        el.style.marginTop = '8px';
-      });
-
-      // 译文模式：段落内的译文样式融入正文
-      if (mode === 'target') {
-        // 段落译文融入正文
-        clone.querySelectorAll('.nf-paragraph .nf-translation').forEach(el => {
-          el.style.fontSize = '18px';
-          el.style.lineHeight = '1.9';
-          el.style.color = '#5a5651';
-          el.style.marginTop = '0';
-        });
-        // 标题译文恢复正常色
-        clone.querySelectorAll('.nf-title .nf-translation').forEach(el => {
-          el.style.color = '#1a1815';
-        });
-        // 副标题译文恢复正常色
-        clone.querySelectorAll('.nf-heading .nf-translation').forEach(el => {
-          el.style.color = '#1a1815';
-          el.style.marginTop = '0';
-        });
-      }
-
-      // 文末添加原文链接
-      if (this.article?.url) {
-        const urlBar = document.createElement('div');
-        urlBar.className = 'nf-source-url';
-        urlBar.textContent = this.article.url.split('?')[0];
-        urlBar.style.cssText = `margin-top:48px;padding-top:20px;border-top:1px solid #e8e4df;font-family:${cnSans};font-size:12px;color:#9a958e;line-height:1.5;word-break:break-all;`;
-        clone.appendChild(urlBar);
-      }
+      const clone = this._createExportClone(mode);
+      if (!clone) throw new Error('No content to capture');
 
       document.body.appendChild(clone);
 
@@ -444,96 +456,9 @@ const ReaderRenderer = {
     btn.classList.add('nf-loading');
 
     try {
-      const content = this.overlay.querySelector('.nf-reader-content');
       const mode = this.getTranslateMode();
-
-      // 复用截图逻辑创建渲染用 clone
-      const clone = content.cloneNode(true);
-      clone.style.cssText = `
-        position: absolute; left: -9999px; top: 0;
-        width: 680px; padding: 56px 32px 80px;
-        background: #faf8f5; color: #1a1815;
-        font-family: 'Source Serif 4', Georgia, 'Noto Serif SC', serif;
-        line-height: 1.8;
-      `;
-
-      const origDisplay = mode === 'target' ? 'display:none;' : 'display:block;';
-      const cnSans = '"Noto Sans SC","PingFang SC","Microsoft YaHei",-apple-system,sans-serif';
-      const cnSerif = '"Noto Serif SC","Source Han Serif SC","SimSun",Georgia,serif';
-
-      const styleMap = {
-        '.nf-title': `font-size:38px;font-weight:700;line-height:1.2;margin:0 0 24px;color:#1a1815;letter-spacing:-0.5px;font-family:${cnSerif};`,
-        '.nf-meta': 'display:flex;align-items:center;gap:20px;margin-bottom:40px;padding-bottom:32px;border-bottom:1px solid #e8e4df;',
-        '.nf-author': `font-family:${cnSans};font-size:14px;font-weight:500;color:#5a5651;`,
-        '.nf-heading': `font-size:24px;font-weight:600;margin:44px 0 20px;color:#1a1815;letter-spacing:-0.2px;padding-top:12px;border-top:2px solid #c45d3e;display:inline-block;font-family:${cnSerif};`,
-        '.nf-paragraph': 'font-size:18px;line-height:1.9;margin:0 0 28px;color:#5a5651;',
-        '.nf-original': origDisplay + 'color:#5a5651;margin-bottom:0;',
-        '.nf-translation': `display:block;font-family:${cnSans};font-size:18px;line-height:1.9;color:#a84d32;margin-top:10px;`,
-        '.nf-featured-image': 'margin:0 -32px 40px;padding:0;',
-        '.nf-featured-image img': 'width:100%;height:auto;display:block;border-radius:12px;',
-        '.nf-article-image': 'margin:32px -16px;padding:0;',
-        '.nf-article-image img': 'width:100%;height:auto;display:block;border-radius:8px;',
-        '.nf-article-image figcaption': `font-family:${cnSans};font-size:13px;color:#9a958e;margin-top:10px;padding:0 16px;line-height:1.5;`,
-        '.nf-body': 'margin-top:32px;',
-      };
-
-      for (const [selector, styles] of Object.entries(styleMap)) {
-        clone.querySelectorAll(selector).forEach(el => { el.style.cssText += styles; });
-      }
-
-      // 标题内的翻译恢复标题字号和字体
-      clone.querySelectorAll('.nf-title .nf-translation').forEach(el => {
-        el.style.fontSize = '38px';
-        el.style.fontWeight = '700';
-        el.style.lineHeight = '1.2';
-        el.style.fontFamily = cnSerif;
-        el.style.letterSpacing = '-0.5px';
-        el.style.marginTop = '12px';
-      });
-      clone.querySelectorAll('.nf-title .nf-original').forEach(el => {
-        el.style.fontSize = '38px';
-        el.style.fontWeight = '700';
-        el.style.lineHeight = '1.2';
-        el.style.fontFamily = cnSerif;
-        el.style.letterSpacing = '-0.5px';
-      });
-      // 副标题翻译恢复副标题字号
-      clone.querySelectorAll('.nf-heading .nf-original').forEach(el => {
-        el.style.fontSize = '24px';
-        el.style.fontWeight = '600';
-        el.style.lineHeight = '1.3';
-        el.style.fontFamily = cnSerif;
-        el.style.marginTop = '0';
-      });
-      clone.querySelectorAll('.nf-heading .nf-translation').forEach(el => {
-        el.style.fontSize = '24px';
-        el.style.fontWeight = '600';
-        el.style.lineHeight = '1.3';
-        el.style.fontFamily = cnSerif;
-        el.style.color = '#a84d32';
-        el.style.marginTop = '8px';
-      });
-
-      if (mode === 'target') {
-        clone.querySelectorAll('.nf-paragraph .nf-translation').forEach(el => {
-          el.style.fontSize = '18px';
-          el.style.lineHeight = '1.9';
-          el.style.color = '#5a5651';
-          el.style.marginTop = '0';
-        });
-        clone.querySelectorAll('.nf-title .nf-translation').forEach(el => {
-          el.style.color = '#1a1815';
-        });
-      }
-
-      // 文末添加原文链接
-      if (this.article?.url) {
-        const urlBar = document.createElement('div');
-        urlBar.className = 'nf-source-url';
-        urlBar.textContent = this.article.url.split('?')[0];
-        urlBar.style.cssText = `margin-top:48px;padding-top:20px;border-top:1px solid #e8e4df;font-family:${cnSans};font-size:12px;color:#9a958e;line-height:1.5;word-break:break-all;`;
-        clone.appendChild(urlBar);
-      }
+      const clone = this._createExportClone(mode);
+      if (!clone) throw new Error('No content to export');
 
       document.body.appendChild(clone);
 
@@ -555,14 +480,13 @@ const ReaderRenderer = {
       const pxPerMm = canvas.width / contentW;
       const pagePxH = Math.floor(contentH * pxPerMm);
 
-      // 扫描一行像素是否为背景色（空白行）
       const imgData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
       const bgR = 250, bgG = 248, bgB = 245; // #faf8f5
       const threshold = 20;
 
-      function isBlankRow(y) {
+      const isBlankRow = (y) => {
         const rowStart = y * canvas.width * 4;
-        for (let x = 0; x < canvas.width * 4; x += 32) { // 每隔8像素采样
+        for (let x = 0; x < canvas.width * 4; x += 32) {
           const r = imgData.data[rowStart + x];
           const g = imgData.data[rowStart + x + 1];
           const b = imgData.data[rowStart + x + 2];
@@ -571,34 +495,29 @@ const ReaderRenderer = {
           }
         }
         return true;
-      }
+      };
 
-      // 在目标切割线附近搜索最近的空白行
-      function findSafeCut(targetY) {
-        // 优先向上搜索（不超过上一页底部 1/4），再向下（不超过下一页 1/4）
+      const findSafeCut = (targetY) => {
         const searchRange = Math.floor(pagePxH * 0.25);
         const minUp = Math.max(0, targetY - searchRange);
         const maxDown = Math.min(canvas.height - 1, targetY + searchRange);
 
-        // 先向上找
         for (let y = targetY; y >= minUp; y -= 2) {
           if (isBlankRow(y)) return y;
         }
-        // 再向下找
         for (let y = targetY + 2; y <= maxDown; y += 2) {
           if (isBlankRow(y)) return y;
         }
-        return targetY; // 找不到就原位切割
-      }
+        return targetY;
+      };
 
-      // 计算安全切割点
-      const cuts = [0]; // 第一页从0开始
+      const cuts = [0];
       let lastCut = 0;
       while (lastCut + pagePxH < canvas.height) {
         const targetY = lastCut + pagePxH;
         const safeY = findSafeCut(targetY);
         if (safeY <= lastCut) {
-          cuts.push(targetY); // 防止死循环
+          cuts.push(targetY);
           lastCut = targetY;
         } else {
           cuts.push(safeY);
@@ -611,7 +530,6 @@ const ReaderRenderer = {
       for (let i = 0; i < cuts.length; i++) {
         if (i > 0) doc.addPage();
 
-        // 每页先填充暖色背景，避免最后一页空白区域白底
         doc.setFillColor(250, 248, 245);
         doc.rect(0, 0, pageW, pageH, 'F');
 
