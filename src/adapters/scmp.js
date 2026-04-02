@@ -92,6 +92,13 @@ class SCMPAdapter extends BaseAdapter {
     return null;
   }
 
+  _isAuthorModule(el) {
+    if (!el) return false;
+    if (el.closest('a[href*="/author/"]')) return true;
+    if (el.querySelector && el.querySelector('a[href*="/author/"]')) return true;
+    return !!el.closest('[class*="author"], [class*="byline"], [class*="bio"], [class*="profile"], [class*="contributor"]');
+  }
+
   // Normalize SCMP image URLs for deduplication
   _normalizeImgUrl(url) {
     if (!url) return '';
@@ -105,6 +112,7 @@ class SCMPAdapter extends BaseAdapter {
     const paragraphs = [];
     const seen = new Set();
     const seenImgKeys = new Set();
+    let hasBodyText = false;
     const featuredSrc = this.getFeaturedImage();
     if (featuredSrc) {
       seenImgKeys.add(this._normalizeImgUrl(featuredSrc));
@@ -127,6 +135,11 @@ class SCMPAdapter extends BaseAdapter {
       }
 
       if (el.closest('nav, header, footer, aside, [class*="newsletter"], [class*="promo"], [class*="ad-slot"], [class*="ad-container"], [class*="in-article-ad"], [class*="-ad-"], [class*="advert"], [class*="sponsor"], [class*="related"], [class*="most"], [class*="trending"], [class*="video"], [class*="widget"], [class*="paywall"], [class*="piano-metering"]')) continue;
+
+      if (this._isAuthorModule(el)) {
+        if (hasBodyText) break;
+        continue;
+      }
 
       const tagName = el.tagName.toLowerCase();
 
@@ -153,8 +166,11 @@ class SCMPAdapter extends BaseAdapter {
           }
         }
         if (!src || seen.has(src)) continue;
-        // Author photo = end of main article
-        if (/\/images\/author\//i.test(src)) break;
+        // Author photo/card = end of main article
+        if (/\/images\/author\//i.test(src) || this._isAuthorModule(el) || this._isAuthorModule(img)) {
+          if (hasBodyText) break;
+          continue;
+        }
         // YouTube thumbnails
         if (/ytimg\.com|youtube\.com/i.test(src)) continue;
         if (this._isFilteredImage(src, img)) continue;
@@ -195,9 +211,11 @@ class SCMPAdapter extends BaseAdapter {
       if (text.length < 15) continue;
       if (seen.has(text)) continue;
 
-      // Skip standfirst (h3 summary at article top)
+      // Keep the standfirst once, but avoid rendering the duplicated summary paragraph.
       if (tagName === 'h3' && !paragraphs.some(p => p.type === 'text')) {
         seen.add(text);
+        paragraphs.push({ type: 'text', level: 0, text });
+        hasBodyText = true;
         continue;
       }
 
@@ -217,6 +235,7 @@ class SCMPAdapter extends BaseAdapter {
       if (/^watch:/i.test(text)) continue;
 
       seen.add(text);
+      hasBodyText = true;
       paragraphs.push({
         type: tagName.startsWith('h') ? 'heading' : 'text',
         level: tagName.startsWith('h') ? parseInt(tagName[1]) : 0,
