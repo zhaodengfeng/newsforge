@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "NewsForge - News Reader & Translator",
   "version": "26.4.1",
-  "description": "Clean reading mode with AI translation and screenshot/PDF sharing for Bloomberg, WSJ, NYTimes, FT and The Economist.",
+  "description": "Clean reading mode with AI translation and screenshot/PDF sharing for Bloomberg, WSJ, NYTimes, FT, The Economist and SCMP.",
   "permissions": [
     "storage",
     "activeTab",
@@ -14,7 +14,8 @@
     "https://*.nytimes.com/*",
     "https://*.nyt.com/*",
     "https://*.ft.com/*",
-    "https://*.economist.com/*"
+    "https://*.economist.com/*",
+    "https://*.scmp.com/*"
   ],
   "action": {
     "default_popup": "popup.html",
@@ -35,7 +36,8 @@
         "https://*.nytimes.com/*",
         "https://*.nyt.com/*",
         "https://*.ft.com/*",
-        "https://*.economist.com/*"
+        "https://*.economist.com/*",
+        "https://*.scmp.com/*"
       ],
       "css": [
         "styles/content.css",
@@ -48,6 +50,7 @@
         "adapters/nytimes.js",
         "adapters/ft.js",
         "adapters/economist.js",
+        "adapters/scmp.js",
         "reader/renderer.js",
         "lib/html2canvas.min.js",
         "lib/jspdf.umd.min.js",
@@ -75,7 +78,8 @@
         "https://*.nytimes.com/*",
         "https://*.nyt.com/*",
         "https://*.ft.com/*",
-        "https://*.economist.com/*"
+        "https://*.economist.com/*",
+        "https://*.scmp.com/*"
       ]
     }
   ]

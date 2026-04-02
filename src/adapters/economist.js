@@ -88,6 +88,7 @@ class EconomistAdapter extends BaseAdapter {
     let path = url.replace(/^https?:\/\/[^\/]+/, '').split('?')[0].split('#')[0];
     path = path.replace(/\/cdn-cgi\/image\/[^\/]+\//i, '/');
     path = path.replace(/\/img\/b\/\d+\/\d+\/\d+\//i, '/');
+    path = path.replace(/\/styles\/[^\/]+\/public\//i, '/');
     return path;
   }
 
@@ -96,6 +97,7 @@ class EconomistAdapter extends BaseAdapter {
     const seen = new Set();
     const seenImgKeys = new Set();
     const featuredSrc = this.getFeaturedImage();
+    const featuredBase = featuredSrc ? this._normalizeImgUrl(featuredSrc).replace(/\.[^.]+$/, '') : '';
     if (featuredSrc) {
       seenImgKeys.add(this._normalizeImgUrl(featuredSrc));
     }
@@ -128,6 +130,8 @@ class EconomistAdapter extends BaseAdapter {
         if (this._isFilteredImage(src, img)) continue;
         const imgKey = this._normalizeImgUrl(src);
         if (seenImgKeys.has(imgKey)) continue;
+        // Prefix check: body image may add variant suffix like _FH to og:image base name
+        if (featuredBase && imgKey.replace(/\.[^.]+$/, '').startsWith(featuredBase + '_')) continue;
         seenImgKeys.add(imgKey);
         seen.add(src);
         let caption = this._getImageCaption(el, img);
