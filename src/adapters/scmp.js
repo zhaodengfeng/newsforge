@@ -146,7 +146,7 @@ class SCMPAdapter extends BaseAdapter {
   _isLeafTextBlock(el) {
     if (!el) return false;
     const tag = el.tagName.toLowerCase();
-    if (tag !== 'div' && tag !== 'section') return false;
+    if (tag !== 'div') return false;
 
     const text = (el.innerText || '').replace(/\s+/g, ' ').trim();
     if (text.length < 40 || text.length > 800) return false;
@@ -194,6 +194,43 @@ class SCMPAdapter extends BaseAdapter {
     return '';
   }
 
+  _getBodyRoot(container) {
+    if (!container) return null;
+
+    const pickBest = (selector, tagBonus = 0) => {
+      let best = null;
+      const nodes = container.querySelectorAll(selector);
+
+      for (const el of nodes) {
+        if (el.closest('nav, header, footer, aside, [class*="newsletter"], [class*="promo"], [class*="advert"], [class*="sponsor"], [class*="paywall"], [class*="piano-metering"]')) continue;
+        if (this._isAuthorModule(el) || this._isTerminalModule(el)) continue;
+
+        const text = (el.innerText || '').replace(/\s+/g, ' ').trim();
+        if (text.length < 500) continue;
+
+        const pCount = el.querySelectorAll('p').length;
+        const imageCount = el.querySelectorAll('img, figure, picture').length;
+        const authorLinks = el.querySelectorAll('a[href*="/author/"]').length;
+        const leafDivCount = Array.from(el.querySelectorAll('div')).filter(child => this._isLeafTextBlock(child)).length;
+
+        if (pCount + leafDivCount < 3) continue;
+
+        let score = text.length + pCount * 240 + leafDivCount * 180 + imageCount * 40 + tagBonus;
+        if (authorLinks > 0) score -= authorLinks * 1200;
+        if (el.querySelector('h1')) score -= 1500;
+        if (/published:|updated:/i.test(text.slice(0, 160))) score -= 600;
+
+        if (!best || score > best.score) {
+          best = { el, score };
+        }
+      }
+
+      return best?.el || null;
+    };
+
+    return pickBest('section', 800) || pickBest('div', 0);
+  }
+
   // Normalize SCMP image URLs for deduplication
   _normalizeImgUrl(url) {
     if (!url) return '';
@@ -216,10 +253,11 @@ class SCMPAdapter extends BaseAdapter {
 
     const container = this.getContentContainer();
     if (!container) return paragraphs;
+    const bodyRoot = this._getBodyRoot(container) || container;
 
     let _videoParent = null;
-    const endMarker = this._findArticleEndMarker(container);
-    const elements = container.querySelectorAll('p, h2, h3, h4, img, figure, picture, div, section');
+    const endMarker = bodyRoot === container ? this._findArticleEndMarker(container) : null;
+    const elements = bodyRoot.querySelectorAll('p, h2, h3, h4, img, figure, picture, div');
 
     for (let i = 0; i < elements.length; i++) {
       const el = elements[i];
