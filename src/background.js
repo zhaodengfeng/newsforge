@@ -397,14 +397,19 @@ async function deeplTranslate(texts, targetLang, langName, provider) {
   texts.forEach(t => params.append('text', t));
   params.append('target_lang', deeplLang);
 
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Authorization': `DeepL-Auth-Key ${apiKey}`
-    },
-    body: params.toString()
-  });
+  let response;
+  try {
+    response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Authorization': `DeepL-Auth-Key ${apiKey}`
+      },
+      body: params.toString()
+    });
+  } catch (err) {
+    throw new Error('DeepL request failed. Reload the extension to accept the new permission, then try again. If you use a Pro key, set the endpoint to https://api.deepl.com/v2/translate in settings.');
+  }
 
   if (!response.ok) {
     const err = await response.text();

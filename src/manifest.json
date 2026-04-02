@@ -16,7 +16,9 @@
     "https://*.nyt.com/*",
     "https://*.ft.com/*",
     "https://*.economist.com/*",
-    "https://*.scmp.com/*"
+    "https://*.scmp.com/*",
+    "https://api.deepl.com/*",
+    "https://api-free.deepl.com/*"
   ],
   "action": {
     "default_popup": "popup.html",
