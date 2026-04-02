@@ -293,6 +293,201 @@
     }
 
     .btn-danger:hover { background: rgba(184,77,77,0.12); border-color: #e8c4c4; }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .summary-item {
+      padding: 14px;
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      background: linear-gradient(180deg, rgba(255,255,255,0.95), rgba(250,248,245,0.75));
+    }
+
+    .summary-kicker {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-tertiary);
+      margin-bottom: 6px;
+      font-weight: 600;
+    }
+
+    .summary-value {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      line-height: 1.4;
+      word-break: break-word;
+    }
+
+    .summary-value.secondary {
+      font-weight: 500;
+      color: var(--text-secondary);
+    }
+
+    .summary-note {
+      margin-top: 12px;
+      padding: 12px 14px;
+      border-radius: var(--radius-sm);
+      background: var(--accent-light);
+      color: var(--text-secondary);
+      font-size: 12px;
+    }
+
+    .advanced-block {
+      margin-top: 12px;
+      border-top: 1px solid var(--border-subtle);
+      padding-top: 12px;
+    }
+
+    .advanced-block summary {
+      list-style: none;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      user-select: none;
+    }
+
+    .advanced-block summary::-webkit-details-marker { display: none; }
+
+    .advanced-block summary::after {
+      content: '▾';
+      font-size: 12px;
+      color: var(--text-tertiary);
+      transition: transform 0.2s ease;
+    }
+
+    .advanced-block[open] summary::after {
+      transform: rotate(180deg);
+    }
+
+    .advanced-content {
+      margin-top: 12px;
+    }
+
+    .btn-secondary {
+      padding: 10px 14px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .btn-secondary:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: rgba(255,255,255,0.98);
+    }
+
+    .btn-secondary:disabled {
+      cursor: wait;
+      opacity: 0.7;
+    }
+
+    .inline-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .test-textarea {
+      min-height: 88px;
+      resize: vertical;
+    }
+
+    .test-result {
+      margin-top: 14px;
+      padding: 14px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--bg);
+      font-size: 12px;
+      line-height: 1.6;
+      color: var(--text-secondary);
+      display: none;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .test-result.visible {
+      display: block;
+    }
+
+    .test-result.success {
+      border-color: rgba(16, 163, 127, 0.25);
+      background: rgba(16, 163, 127, 0.06);
+      color: #0d7f63;
+    }
+
+    .test-result.error {
+      border-color: rgba(184, 77, 77, 0.25);
+      background: rgba(184, 77, 77, 0.06);
+      color: #9f3c3c;
+    }
+
+    .test-result.pending {
+      border-color: rgba(196, 93, 62, 0.25);
+      background: rgba(196, 93, 62, 0.06);
+      color: var(--accent-hover);
+    }
+
+    .status-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .status-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 12px 14px;
+      border-radius: var(--radius-sm);
+      background: var(--bg);
+      border: 1px solid var(--border-subtle);
+    }
+
+    .status-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+
+    .status-value {
+      font-size: 12px;
+      color: var(--text);
+      text-align: right;
+      word-break: break-word;
+      max-width: 65%;
+    }
+
+    @media (max-width: 640px) {
+      .summary-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .status-row {
+        flex-direction: column;
+      }
+
+      .status-value {
+        max-width: 100%;
+        text-align: left;
+      }
+    }
   </style>
 </head>
 <body>
@@ -307,79 +502,128 @@
   </div>
 
   <div class="container">
-    <!-- Translation Provider -->
     <div class="section">
       <div class="section-header">
-        <div class="section-label">Translation Engine</div>
-        <div class="section-desc">Choose translation provider</div>
+        <div class="section-label">Quick Setup</div>
+        <div class="section-desc">Start with engine and target language, then review the live summary below</div>
       </div>
 
       <div class="card">
         <div class="config-card">
-          <div class="field">
-            <label class="field-label">Provider</label>
-            <select class="input" id="providerSelect">
-              <optgroup label="Free (No API Key required)">
-                <option value="google">Google Translate</option>
-                <option value="microsoft">Microsoft Translator</option>
-              </optgroup>
-              <optgroup label="OpenAI-Compatible API">
-                <option value="openai">OpenAI</option>
-                <option value="deepseek">DeepSeek</option>
-                <option value="qwen">Qwen (Alibaba)</option>
-                <option value="gemini">Gemini</option>
-                <option value="glm">GLM (Zhipu)</option>
-                <option value="kimi">Kimi (Moonshot)</option>
-                <option value="openrouter">OpenRouter</option>
-              </optgroup>
-              <optgroup label="Other API">
-                <option value="claude">Claude (Anthropic)</option>
-                <option value="deepl">DeepL</option>
-              </optgroup>
-              <optgroup label="Custom">
-                <option value="custom_openai">Custom (OpenAI-Compatible)</option>
-                <option value="custom_claude">Custom (Claude-Compatible)</option>
-              </optgroup>
-            </select>
+          <div class="summary-grid">
+            <div class="field">
+              <label class="field-label">Translation Provider</label>
+              <select class="input" id="providerSelect">
+                <optgroup label="Free (No API Key required)">
+                  <option value="google">Google Translate</option>
+                  <option value="microsoft">Microsoft Translator</option>
+                </optgroup>
+                <optgroup label="OpenAI-Compatible API">
+                  <option value="openai">OpenAI</option>
+                  <option value="deepseek">DeepSeek</option>
+                  <option value="qwen">Qwen (Alibaba)</option>
+                  <option value="gemini">Gemini</option>
+                  <option value="glm">GLM (Zhipu)</option>
+                  <option value="kimi">Kimi (Moonshot)</option>
+                  <option value="openrouter">OpenRouter</option>
+                </optgroup>
+                <optgroup label="Other API">
+                  <option value="claude">Claude (Anthropic)</option>
+                  <option value="deepl">DeepL</option>
+                </optgroup>
+                <optgroup label="Custom">
+                  <option value="custom_openai">Custom (OpenAI-Compatible)</option>
+                  <option value="custom_claude">Custom (Claude-Compatible)</option>
+                </optgroup>
+              </select>
+            </div>
+
+            <div class="field">
+              <label class="field-label">Target Language</label>
+              <select class="input" id="targetLang">
+                <option value="zh-CN">简体中文</option>
+                <option value="zh-TW">繁體中文</option>
+                <option value="ja">日本語</option>
+                <option value="ko">한국어</option>
+                <option value="en">English</option>
+                <option value="fr">Français</option>
+                <option value="de">Deutsch</option>
+                <option value="es">Español</option>
+                <option value="ru">Русский</option>
+                <option value="pt">Português</option>
+                <option value="it">Italiano</option>
+                <option value="ar">العربية</option>
+              </select>
+            </div>
           </div>
+
+          <div class="summary-note" id="activeSummaryLine">Current: Google Translate / zh-CN</div>
         </div>
       </div>
-
-      <!-- 动态配置区域 -->
-      <div id="providerConfig" style="margin-top: 12px;"></div>
     </div>
 
-    <!-- Target Language -->
     <div class="section">
       <div class="section-header">
-        <div class="section-label">Preferences</div>
+        <div class="section-label">Engine Config</div>
+        <div class="section-desc">Only the active provider's required fields are shown. Endpoint is kept in Advanced Settings.</div>
       </div>
-      <div class="card">
-        <div class="card-row">
-          <div>
-            <div class="card-row-label">Target Language</div>
-            <div class="card-row-desc">Translation output language</div>
+      <div id="providerConfig"></div>
+    </div>
+
+    <div class="section">
+      <div class="section-header">
+        <div class="section-label">Status & Diagnostics</div>
+        <div class="section-desc">Review the active configuration and run a quick translation test before leaving this page.</div>
+      </div>
+
+      <div class="card" style="margin-bottom: 12px;">
+        <div class="config-card">
+          <div class="status-list" id="diagnosticStatus">
+            <div class="status-row">
+              <div class="status-label">Provider</div>
+              <div class="status-value" id="statusProvider">Google Translate</div>
+            </div>
+            <div class="status-row">
+              <div class="status-label">Model / Plan</div>
+              <div class="status-value" id="statusModel">No API Key required</div>
+            </div>
+            <div class="status-row">
+              <div class="status-label">Endpoint</div>
+              <div class="status-value" id="statusEndpoint">Built-in service</div>
+            </div>
+            <div class="status-row">
+              <div class="status-label">Credential Status</div>
+              <div class="status-value" id="statusCredential">Ready</div>
+            </div>
           </div>
-          <select class="input" id="targetLang" style="width: 150px;">
-            <option value="zh-CN">简体中文</option>
-            <option value="zh-TW">繁體中文</option>
-            <option value="ja">日本語</option>
-            <option value="ko">한국어</option>
-	            <option value="en">English</option>
-	            <option value="fr">Français</option>
-	            <option value="de">Deutsch</option>
-	            <option value="es">Español</option>
-	            <option value="ru">Русский</option>
-	            <option value="pt">Português</option>
-	            <option value="it">Italiano</option>
-	            <option value="ar">العربية</option>
-          </select>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="config-card">
+          <div class="config-header">
+            <div>
+              <div class="config-title">Test Translation</div>
+              <div class="config-subtitle">Uses the current on-screen settings, even if you have not saved yet</div>
+            </div>
+          </div>
+
+          <div class="field">
+            <label class="field-label">Sample Text</label>
+            <textarea class="input test-textarea" id="testInput" placeholder="Enter text to test translation">Hello world. This is a translation test.</textarea>
+            <div class="field-hint">This helps confirm whether the current engine, model, API key and endpoint are working together.</div>
+          </div>
+
+          <div class="inline-actions">
+            <button class="btn-secondary" id="btnTestTranslate">Run Test</button>
+          </div>
+
+          <div class="test-result" id="testResult"></div>
         </div>
       </div>
     </div>
 
-    <!-- Save -->
-    <div style="margin-top: 32px;">
+    <div style="margin-top: 32px; display: flex; gap: 12px; align-items: center;">
       <button class="btn-save" id="btnSave">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
@@ -390,11 +634,11 @@
       </button>
     </div>
 
-    <!-- Danger Zone -->
     <div class="danger-zone">
       <div class="section">
         <div class="section-header">
-          <div class="section-label">Danger Zone</div>
+          <div class="section-label">Data & Maintenance</div>
+          <div class="section-desc">Maintenance actions live separately so they don't compete with normal engine setup.</div>
         </div>
         <div class="card danger">
           <div class="card-row">

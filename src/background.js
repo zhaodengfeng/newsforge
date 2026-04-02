@@ -100,7 +100,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.type === 'translate') {
     handleTranslate(msg.data).then(sendResponse).catch(err => {
-      sendResponse({ error: err.message });
+      sendResponse({ error: err.userMessage || err.message });
     });
     return true; // 异步
   }
@@ -118,26 +118,110 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 // ============================================
 // 翻译路由
 // ============================================
-async function handleTranslate({ texts, from, to }) {
+async function handleTranslate({ texts, from, to, providerOverride, configOverride }) {
   const settings = await chrome.storage.local.get(['translationProvider', 'targetLang']);
-  const provider = settings.translationProvider || 'google';
+  const provider = providerOverride || settings.translationProvider || 'google';
   const targetLang = to || settings.targetLang || 'zh-CN';
+  const safeTexts = Array.isArray(texts) ? texts : [];
   const LANG_NAMES = { 'zh-CN': 'Simplified Chinese', 'zh-TW': 'Traditional Chinese', 'en': 'English', 'ja': 'Japanese', 'ko': 'Korean', 'fr': 'French', 'de': 'German', 'es': 'Spanish', 'ru': 'Russian', 'pt': 'Portuguese', 'it': 'Italian', 'ar': 'Arabic' };
   const langName = LANG_NAMES[targetLang] || targetLang;
 
-  switch (provider) {
-    case 'google':
-      return googleTranslate(texts, targetLang);
-    case 'microsoft':
-      return microsoftTranslate(texts, targetLang);
-    case 'deepl':
-      return deeplTranslate(texts, targetLang, langName, provider, settings);
-    case 'claude':
-    case 'custom_claude':
-      return claudeTranslate(texts, targetLang, langName, provider);
-    default:
-      return openaiTranslate(texts, targetLang, langName, provider);
+  try {
+    switch (provider) {
+      case 'google':
+        return googleTranslate(safeTexts, targetLang);
+      case 'microsoft':
+        return microsoftTranslate(safeTexts, targetLang);
+      case 'deepl':
+        return deeplTranslate(safeTexts, targetLang, langName, provider, configOverride);
+      case 'claude':
+      case 'custom_claude':
+        return claudeTranslate(safeTexts, targetLang, langName, provider, configOverride);
+      default:
+        return openaiTranslate(safeTexts, targetLang, langName, provider, configOverride);
+    }
+  } catch (error) {
+    const wrapped = new Error(formatTranslationError(provider, error));
+    wrapped.userMessage = formatTranslationError(provider, error);
+    throw wrapped;
   }
+}
+
+function providerDisplayName(provider) {
+  return PROVIDERS[provider]?.name || provider;
+}
+
+function formatTranslationError(provider, error) {
+  const providerName = providerDisplayName(provider);
+  const raw = (error && error.message ? error.message : String(error || '')).trim();
+  const lower = raw.toLowerCase();
+
+  if (!raw) {
+    return `${providerName} 翻译失败，请稍后重试。`;
+  }
+
+  if (provider === 'deepl' && lower.includes('deepl request failed')) {
+    return '无法连接到 DeepL。请重载扩展后重试；如果你使用的是 Pro Key，请在设置页切换到 Pro API。';
+  }
+
+  if ((lower.includes('configure') || lower.includes('missing') || lower.includes('required')) && lower.includes('api key')) {
+    return `未配置 ${providerName} API Key。请先在设置页填写后重试。`;
+  }
+
+  if ((lower.includes('configure') || lower.includes('missing') || lower.includes('required')) && lower.includes('endpoint')) {
+    return `${providerName} 未配置 API Endpoint。请在设置页补充后重试。`;
+  }
+
+  if (
+    lower.includes('401') ||
+    lower.includes('403') ||
+    lower.includes('unauthorized') ||
+    lower.includes('forbidden') ||
+    lower.includes('invalid api key') ||
+    lower.includes('authentication') ||
+    lower.includes('auth failed')
+  ) {
+    return `${providerName} 认证失败，请检查 API Key 是否正确。`;
+  }
+
+  if (
+    lower.includes('429') ||
+    lower.includes('rate limit') ||
+    lower.includes('quota') ||
+    lower.includes('insufficient_quota') ||
+    lower.includes('too many requests')
+  ) {
+    return `${providerName} 请求被限制或额度不足，请稍后重试。`;
+  }
+
+  if (
+    lower.includes('model') &&
+    (
+      lower.includes('not found') ||
+      lower.includes('unsupported') ||
+      lower.includes('does not exist') ||
+      lower.includes('invalid') ||
+      lower.includes('no such')
+    )
+  ) {
+    return '当前模型不可用，请改用预设模型或检查自定义模型名称。';
+  }
+
+  if (
+    lower.includes('failed to fetch') ||
+    lower.includes('networkerror') ||
+    lower.includes('network error') ||
+    lower.includes('fetch failed') ||
+    lower.includes('request failed')
+  ) {
+    return `无法连接到 ${providerName}，请检查网络或 endpoint 设置。`;
+  }
+
+  if (lower.includes('empty response') || lower.includes('returned empty response')) {
+    return `${providerName} 返回了空结果，请更换模型或稍后重试。`;
+  }
+
+  return `${providerName} 翻译失败：${raw.slice(0, 180)}`;
 }
 
 function extractTextFromLLMValue(value) {
@@ -342,8 +426,8 @@ async function microsoftTranslate(texts, targetLang) {
 // ============================================
 // OpenAI 兼容翻译
 // ============================================
-async function openaiTranslate(texts, targetLang, langName, provider) {
-  const cfg = await loadProviderConfig(provider);
+async function openaiTranslate(texts, targetLang, langName, provider, configOverride) {
+  const cfg = await loadProviderConfig(provider, configOverride);
   const apiKey = cfg.apiKey;
   const model = cfg.model || PROVIDERS[provider]?.model || '';
   const endpoint = cfg.endpoint || PROVIDERS[provider]?.endpoint || '';
@@ -393,8 +477,8 @@ async function openaiTranslate(texts, targetLang, langName, provider) {
 // ============================================
 // Claude API 翻译
 // ============================================
-async function claudeTranslate(texts, targetLang, langName, provider) {
-  const cfg = await loadProviderConfig(provider);
+async function claudeTranslate(texts, targetLang, langName, provider, configOverride) {
+  const cfg = await loadProviderConfig(provider, configOverride);
   const apiKey = cfg.apiKey;
   const model = cfg.model || PROVIDERS[provider]?.model || '';
   const endpoint = cfg.endpoint || PROVIDERS[provider]?.endpoint || '';
@@ -441,8 +525,8 @@ async function claudeTranslate(texts, targetLang, langName, provider) {
 // ============================================
 // DeepL API 翻译
 // ============================================
-async function deeplTranslate(texts, targetLang, langName, provider) {
-  const cfg = await loadProviderConfig(provider);
+async function deeplTranslate(texts, targetLang, langName, provider, configOverride) {
+  const cfg = await loadProviderConfig(provider, configOverride);
   const apiKey = cfg.apiKey;
   const endpoint = cfg.endpoint || PROVIDERS.deepl.endpoint;
 
@@ -484,12 +568,12 @@ async function deeplTranslate(texts, targetLang, langName, provider) {
 // ============================================
 // 辅助：加载服务商配置
 // ============================================
-async function loadProviderConfig(provider) {
+async function loadProviderConfig(provider, override = {}) {
   const keys = [`${provider}_apiKey`, `${provider}_model`, `${provider}_endpoint`];
   const data = await chrome.storage.local.get(keys);
   return {
-    apiKey: data[`${provider}_apiKey`] || '',
-    model: data[`${provider}_model`] || '',
-    endpoint: data[`${provider}_endpoint`] || ''
+    apiKey: Object.prototype.hasOwnProperty.call(override, 'apiKey') ? (override.apiKey || '') : (data[`${provider}_apiKey`] || ''),
+    model: Object.prototype.hasOwnProperty.call(override, 'model') ? (override.model || '') : (data[`${provider}_model`] || ''),
+    endpoint: Object.prototype.hasOwnProperty.call(override, 'endpoint') ? (override.endpoint || '') : (data[`${provider}_endpoint`] || '')
   };
 }
