@@ -24,7 +24,94 @@ class SCMPAdapter extends BaseAdapter {
            /scmp\.com\/.+\/article\/\d+/.test(canonical);
   }
 
+  _normalizeTitleText(text) {
+    return (text || '')
+      .replace(/\s+/g, ' ')
+      .replace(/\s*\|\s*South China Morning Post\s*$/i, '')
+      .trim()
+      .toLowerCase();
+  }
+
+  _isElementVisible(el) {
+    if (!el || !el.isConnected) return false;
+    const style = window.getComputedStyle ? window.getComputedStyle(el) : null;
+    if (style && (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0)) {
+      return false;
+    }
+    if (el.closest('[hidden], [aria-hidden="true"]')) return false;
+    const rect = el.getBoundingClientRect?.();
+    return !!rect && rect.width > 0 && rect.height > 0;
+  }
+
+  _getCurrentTitleHint() {
+    const metaTitle = document.querySelector('meta[property="og:title"]')?.getAttribute('content') || '';
+    if (metaTitle) return this._normalizeTitleText(metaTitle);
+    return this._normalizeTitleText(document.title);
+  }
+
+  _getActiveTitleElement() {
+    const titleHint = this._getCurrentTitleHint();
+    const headings = Array.from(document.querySelectorAll('h1'));
+    let best = null;
+
+    for (const el of headings) {
+      const text = (el.innerText || '').trim();
+      if (text.length < 5) continue;
+
+      const normalized = this._normalizeTitleText(text);
+      let score = text.length;
+      if (this._isElementVisible(el)) score += 3000;
+      if (titleHint && normalized === titleHint) score += 10000;
+      else if (titleHint && normalized && titleHint.includes(normalized)) score += 5000;
+      else if (titleHint && normalized && normalized.includes(titleHint)) score += 5000;
+
+      if (!best || score > best.score) {
+        best = { el, score };
+      }
+    }
+
+    return best?.el || null;
+  }
+
+  _getActiveContentAnchor() {
+    const titleEl = this._getActiveTitleElement();
+    if (!titleEl) return null;
+
+    let current = titleEl.parentElement;
+    let best = null;
+
+    while (current && current !== document.body) {
+      const text = (current.innerText || '').trim();
+      if (text.length >= 300) {
+        const contentCount = current.querySelectorAll('p, h2, h3, h4, img, figure, picture, section, div').length;
+        if (contentCount >= 5) {
+          let score = text.length;
+          if (this._isElementVisible(current)) score += 3000;
+          if (current.tagName && /^(ARTICLE|SECTION|MAIN)$/i.test(current.tagName)) score += 2000;
+
+          if (!best || score < best.score) {
+            best = { el: current, score };
+          }
+        }
+      }
+      current = current.parentElement;
+    }
+
+    return best?.el || titleEl.parentElement || null;
+  }
+
   getTitle() {
+    const activeTitle = this._getActiveTitleElement();
+    if (activeTitle) {
+      const text = (activeTitle.innerText || '').trim();
+      if (text.length > 5) return text;
+    }
+
+    const metaTitle = document.querySelector('meta[property="og:title"]')?.getAttribute('content') || '';
+    if (metaTitle.trim().length > 5) {
+      return metaTitle.replace(/\s*\|\s*South China Morning Post\s*$/i, '').trim();
+    }
+
     const el = document.querySelector('h1');
     if (el && el.innerText.trim().length > 5) return el.innerText.trim();
     return document.title;
@@ -74,6 +161,37 @@ class SCMPAdapter extends BaseAdapter {
   }
 
   getContentContainer() {
+    const anchored = this._getActiveContentAnchor();
+    if (anchored && (anchored.innerText || '').trim().length > 200) {
+      return anchored;
+    }
+
+    const titleHint = this._getCurrentTitleHint();
+    const articles = Array.from(document.querySelectorAll('article'));
+    let best = null;
+
+    for (const el of articles) {
+      const text = (el.innerText || '').trim();
+      if (text.length < 200) continue;
+
+      let score = text.length;
+      if (this._isElementVisible(el)) score += 3000;
+      if (titleHint && this._normalizeTitleText(text).includes(titleHint)) score += 5000;
+
+      const h1 = el.querySelector('h1');
+      if (h1) {
+        const h1Text = this._normalizeTitleText(h1.innerText || '');
+        if (h1Text && titleHint && h1Text === titleHint) score += 8000;
+        if (this._isElementVisible(h1)) score += 2000;
+      }
+
+      if (!best || score > best.score) {
+        best = { el, score };
+      }
+    }
+
+    if (best?.el) return best.el;
+
     const el = document.querySelector('article');
     if (el && el.innerText?.trim().length > 200) return el;
     return super.getContentContainer();
@@ -188,11 +306,16 @@ class SCMPAdapter extends BaseAdapter {
   getStandfirst() {
     const container = this.getContentContainer();
     if (!container) return '';
+    const titleEl = this._getActiveTitleElement();
 
     const headings = container.querySelectorAll('h3');
     for (const el of headings) {
       if (el.closest('nav, header, footer, aside')) continue;
       if (this._isTerminalModule(el)) continue;
+      if (titleEl) {
+        const pos = titleEl.compareDocumentPosition(el);
+        if (pos & Node.DOCUMENT_POSITION_PRECEDING) continue;
+      }
 
       const text = (el.innerText || '').replace(/\s+/g, ' ').trim();
       if (text.length < 40 || text.length > 300) continue;
@@ -206,7 +329,7 @@ class SCMPAdapter extends BaseAdapter {
     return '';
   }
 
-  _getBodyRoot(container) {
+  _getBodyRoot(container, visibleOnly = true) {
     if (!container) return null;
 
     const pickBest = (selector, tagBonus = 0) => {
@@ -216,6 +339,7 @@ class SCMPAdapter extends BaseAdapter {
       for (const el of nodes) {
         if (el.closest('nav, header, footer, aside, [class*="newsletter"], [class*="promo"], [class*="advert"], [class*="sponsor"], [class*="paywall"], [class*="piano-metering"]')) continue;
         if (this._isAuthorModule(el) || this._isTerminalModule(el)) continue;
+        if (visibleOnly && !this._isElementVisible(el)) continue;
 
         const text = (el.innerText || '').replace(/\s+/g, ' ').trim();
         if (text.length < 500) continue;
@@ -223,7 +347,10 @@ class SCMPAdapter extends BaseAdapter {
         const pCount = el.querySelectorAll('p').length;
         const imageCount = el.querySelectorAll('img, figure, picture').length;
         const authorLinks = el.querySelectorAll('a[href*="/author/"]').length;
-        const leafDivCount = Array.from(el.querySelectorAll('div')).filter(child => this._isLeafTextBlock(child)).length;
+        const leafDivCount = Array.from(el.querySelectorAll('div')).filter(child => {
+          if (visibleOnly && !this._isElementVisible(child)) return false;
+          return this._isLeafTextBlock(child);
+        }).length;
 
         if (pCount + leafDivCount < 3) continue;
 
@@ -257,6 +384,8 @@ class SCMPAdapter extends BaseAdapter {
     const seen = new Set();
     const seenImgKeys = new Set();
     let hasBodyText = false;
+    const url = this.getURL();
+    const isPlusPage = /\/plus\//i.test(url) || /[?&]display=plus\b/i.test(url);
     const standfirst = this.getStandfirst();
     const featuredSrc = this.getFeaturedImage();
     if (featuredSrc) {
@@ -265,7 +394,10 @@ class SCMPAdapter extends BaseAdapter {
 
     const container = this.getContentContainer();
     if (!container) return paragraphs;
-    const bodyRoot = this._getBodyRoot(container) || container;
+    const titleEl = this._getActiveTitleElement();
+    const bodyRoot = (isPlusPage && titleEl && container.contains(titleEl))
+      ? container
+      : (this._getBodyRoot(container, true) || this._getBodyRoot(container, false) || container);
 
     let _videoParent = null;
     const endMarker = bodyRoot === container ? this._findArticleEndMarker(container) : null;
@@ -273,6 +405,11 @@ class SCMPAdapter extends BaseAdapter {
 
     for (let i = 0; i < elements.length; i++) {
       const el = elements[i];
+
+      if (titleEl) {
+        const pos = titleEl.compareDocumentPosition(el);
+        if (pos & Node.DOCUMENT_POSITION_PRECEDING) continue;
+      }
 
       if (endMarker) {
         if (el === endMarker) break;
