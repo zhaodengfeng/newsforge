@@ -94,6 +94,17 @@ class BloombergAdapter extends BaseAdapter {
     return super.getContentContainer();
   }
 
+  _isHeroLikeImage(el, img) {
+    const candidates = [el, img, el?.parentElement, img?.parentElement].filter(Boolean);
+    for (const node of candidates) {
+      const heroAncestor = node.closest(
+        '[class*="FeatureHeader"], [class*="ledeImage"], [class*="ledeMedia"], [class*="hero"], [class*="Hero"], [class*="topper"], [class*="Topper"]'
+      );
+      if (heroAncestor) return true;
+    }
+    return false;
+  }
+
   getParagraphs() {
     const paragraphs = [];
     const seen = new Set();
@@ -143,6 +154,7 @@ class BloombergAdapter extends BaseAdapter {
         const src = this._resolveImageSrc(img);
         if (!src || seen.has(src)) continue;
         if (this._isFilteredImage(src, img)) continue;
+        if (this._isHeroLikeImage(el, img)) continue;
         // 跳过与头图相同的图（模糊匹配图片 ID 目录）
         if (featuredKey) {
           const sp = this._normalizeImgUrl(src);

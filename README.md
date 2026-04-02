@@ -11,6 +11,7 @@ A Chrome extension for clean reading, AI-powered translation, and screenshot/PDF
 - New York Times
 - Financial Times (FT)
 - The Economist
+- South China Morning Post (SCMP)
 
 ## Features
 
@@ -47,6 +48,7 @@ A Chrome extension for clean reading, AI-powered translation, and screenshot/PDF
 src/
 ├── manifest.json          # MV3 manifest
 ├── background.js          # Service worker (translation routing, history)
+├── providers.js           # Shared translation provider definitions
 ├── content.js             # Content script entry (adapter selection, reader trigger)
 ├── popup.html/js          # Extension popup UI
 ├── options.html/js        # Settings page (provider config)
@@ -56,10 +58,10 @@ src/
 │   ├── wsj.js
 │   ├── nytimes.js
 │   ├── ft.js
-│   └── economist.js
+│   ├── economist.js
+│   └── scmp.js
 ├── reader/
-│   ├── renderer.js        # Reader mode UI, screenshot, PDF export
-│   └── translator.js      # Paragraph-level translation handler
+│   └── renderer.js        # Reader mode UI, translation, screenshot, PDF export
 ├── lib/                   # Third-party libraries
 ├── styles/
 │   ├── content.css        # Float icon, toast

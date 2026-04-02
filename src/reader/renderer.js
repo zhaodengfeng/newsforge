@@ -4,12 +4,19 @@ const ReaderRenderer = {
   article: null,
   overlay: null,
   translated: false,
+  translating: false,
   onClose: null,
   _targetLang: 'zh-CN',
+  _sessionId: 0,
+  _translationRunId: 0,
 
   render(article) {
+    this._sessionId++;
+    this._translationRunId = 0;
     this.article = article;
     this.active = true;
+    this.translated = false;
+    this.translating = false;
 
     // 去重：paragraphs 中与 featuredImage 相同的图片全部移除
     if (article.featuredImage) {
@@ -131,8 +138,11 @@ const ReaderRenderer = {
   },
 
   close() {
+    this._sessionId++;
+    this._translationRunId++;
     this.active = false;
     this.translated = false;
+    this.translating = false;
     document.body.classList.remove('nf-reader-active');
     if (this.overlay) {
       this.overlay.remove();
@@ -144,13 +154,15 @@ const ReaderRenderer = {
     if (typeof this.onClose === 'function') {
       this.onClose();
     }
+    this.onClose = null;
   },
 
   getTranslateMode() {
-    return this.overlay.querySelector('.nf-translate-mode').value;
+    return this.overlay?.querySelector('.nf-translate-mode')?.value || 'bilingual';
   },
 
   applyTranslateMode(mode) {
+    if (!this.overlay) return;
     this.overlay.querySelectorAll('.nf-translated').forEach(el => {
       if (mode === 'target') {
         el.classList.add('nf-target-only');
@@ -161,6 +173,7 @@ const ReaderRenderer = {
   },
 
   handleTranslateClick() {
+    if (!this.overlay) return;
     if (this.translated) {
       const btn = this.overlay.querySelector('.nf-btn-translate');
       const paragraphs = this.overlay.querySelectorAll('.nf-translated');
@@ -175,16 +188,33 @@ const ReaderRenderer = {
       }
       return;
     }
+    if (this.translating) return;
     this.translateAll();
   },
 
   async translateAll() {
-    const btn = this.overlay.querySelector('.nf-btn-translate');
+    const overlay = this.overlay;
+    if (!overlay) return;
+
+    const btn = overlay.querySelector('.nf-btn-translate');
+    if (!btn || this.translating) return;
+
+    this.translating = true;
+    const sessionId = this._sessionId;
+    const translationRunId = ++this._translationRunId;
+    const isStale = () => (
+      this._sessionId !== sessionId ||
+      this._translationRunId !== translationRunId ||
+      !this.active ||
+      !overlay.isConnected ||
+      this.overlay !== overlay
+    );
+
     btn.classList.add('nf-loading');
 
-    const progressBar = this.overlay.querySelector('#nf-progress');
+    const progressBar = overlay.querySelector('#nf-progress');
     const mode = this.getTranslateMode();
-    const titleEl = this.overlay.querySelector('.nf-title');
+    const titleEl = overlay.querySelector('.nf-title');
 
     // Read target language from storage
     try {
@@ -199,7 +229,7 @@ const ReaderRenderer = {
 
     // Collect body elements in DOM order
     const bodyElements = [];
-    this.overlay.querySelectorAll('.nf-heading[data-original], .nf-paragraph[data-original]')
+    overlay.querySelectorAll('.nf-heading[data-original], .nf-paragraph[data-original]')
       .forEach(el => bodyElements.push(el));
 
     const total = (titleEl?.dataset.original ? 1 : 0) + bodyElements.length;
@@ -215,7 +245,7 @@ const ReaderRenderer = {
     bodyElements.forEach(el => el.classList.add('nf-translating'));
 
     const applyTranslation = (el, translation) => {
-      if (!el || !translation) return;
+      if (!el || !translation || isStale()) return;
       el.innerHTML = `<span class="nf-original">${this.escapeHtml(el.dataset.original)}</span>
                      <span class="nf-translation">${this.escapeHtml(translation)}</span>`;
       el.classList.remove('nf-translating');
@@ -227,6 +257,7 @@ const ReaderRenderer = {
     };
 
     const updateProgress = () => {
+      if (isStale()) return;
       completed++;
       btn.querySelector('span').textContent = `Translating ${completed}/${total}...`;
       if (progressBar) progressBar.style.width = Math.min((completed / total) * 100, 100) + '%';
@@ -240,6 +271,7 @@ const ReaderRenderer = {
           type: 'translate',
           data: { texts: [titleEl.dataset.original], from: 'en', to: targetLang }
         });
+        if (isStale()) return;
         if (response?.error) throw new Error(response.error);
         if (response?.translations?.[0]) {
           applyTranslation(titleEl, response.translations[0]);
@@ -260,6 +292,7 @@ const ReaderRenderer = {
           data: { texts: chunkTexts, from: 'en', to: targetLang }
         });
 
+        if (isStale()) return;
         if (response?.error) throw new Error(response.error);
 
         if (response?.translations) {
@@ -270,6 +303,7 @@ const ReaderRenderer = {
         }
       }
 
+      if (isStale()) return;
       this.translated = true;
       btn.querySelector('span').textContent = 'Show Original';
       btn.classList.remove('nf-loading');
@@ -280,16 +314,22 @@ const ReaderRenderer = {
         }
       }, 800);
     } catch (err) {
+      if (isStale()) return;
       console.error('NewsForge translation error:', err);
       btn.querySelector('span').textContent = 'Translate';
       btn.classList.remove('nf-loading');
       if (progressBar) progressBar.style.width = '0%';
       bodyElements.forEach(el => el.classList.remove('nf-translating'));
       this.showToast(err.message || 'Translation failed');
+    } finally {
+      if (!isStale()) {
+        this.translating = false;
+      }
     }
   },
 
   showToast(message) {
+    if (!this.overlay) return;
     const existing = this.overlay.querySelector('.nf-reader-toast');
     if (existing) existing.remove();
     const toast = document.createElement('div');
@@ -303,6 +343,7 @@ const ReaderRenderer = {
 
   // Create a styled clone of .nf-reader-content for screenshot/PDF export
   _createExportClone(mode) {
+    if (!this.overlay) return null;
     const content = this.overlay.querySelector('.nf-reader-content');
     if (!content) return null;
 
@@ -410,7 +451,7 @@ const ReaderRenderer = {
 
   // 截图
   async takeScreenshot() {
-    if (typeof html2canvas === 'undefined') return;
+    if (typeof html2canvas === 'undefined' || !this.overlay) return;
 
     const btn = this.overlay.querySelector('.nf-btn-screenshot');
     btn.classList.add('nf-loading');
@@ -449,7 +490,7 @@ const ReaderRenderer = {
 
   // PDF 导出：html2canvas → 图片 → PDF，解决 CJK 乱码
   async exportPDF() {
-    if (typeof jspdf === 'undefined' && typeof window.jspdf === 'undefined') return;
+    if ((typeof jspdf === 'undefined' && typeof window.jspdf === 'undefined') || !this.overlay) return;
     if (typeof html2canvas === 'undefined') return;
 
     const btn = this.overlay.querySelector('.nf-btn-pdf');

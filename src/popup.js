@@ -2,10 +2,15 @@
 document.addEventListener('DOMContentLoaded', () => {
   const statusDot = document.getElementById('statusDot');
   const statusText = document.getElementById('statusText');
+  const issueVersion = document.getElementById('issueVersion');
   const btnRead = document.getElementById('btnRead');
   const btnSettings = document.getElementById('btnSettings');
   const btnHistory = document.getElementById('btnHistory');
   const historyList = document.getElementById('historyList');
+
+  if (issueVersion) {
+    issueVersion.textContent = `v${chrome.runtime.getManifest().version}`;
+  }
 
   // 检测当前页面
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {

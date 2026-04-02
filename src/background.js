@@ -26,30 +26,56 @@ chrome.runtime.onInstalled.addListener(() => {
   migrateOldSettings();
 });
 
+migrateOldSettings();
+
 function migrateOldSettings() {
-  chrome.storage.local.get(['openaiKey', 'deepseekKey', 'translationProvider'], (old) => {
-    const updates = {};
-    const removes = [];
+  const legacyKeys = [
+    'openaiKey', 'openaiModel', 'openaiEndpoint',
+    'deepseekKey', 'deepseekModel', 'deepseekEndpoint'
+  ];
 
-    if (old.openaiKey) {
-      updates.openai_apiKey = old.openaiKey;
-      if (old.openaiModel) updates.openai_model = old.openaiModel;
-      if (old.openaiEndpoint) updates.openai_endpoint = old.openaiEndpoint;
-      removes.push('openaiKey', 'openaiModel', 'openaiEndpoint');
-    }
-    if (old.deepseekKey) {
-      updates.deepseek_apiKey = old.deepseekKey;
-      if (old.deepseekModel) updates.deepseek_model = old.deepseekModel;
-      if (old.deepseekEndpoint) updates.deepseek_endpoint = old.deepseekEndpoint;
-      removes.push('deepseekKey', 'deepseekModel', 'deepseekEndpoint');
-    }
+  chrome.storage.local.get(legacyKeys, (old) => {
+    const { updates, removes } = buildLegacyConfigMigration(old);
 
-    if (Object.keys(updates).length > 0) {
+    if (Object.keys(updates).length > 0 || removes.length > 0) {
       chrome.storage.local.set(updates, () => {
         chrome.storage.local.remove(removes);
       });
     }
   });
+}
+
+function buildLegacyConfigMigration(old = {}) {
+  const updates = {};
+  const removes = [];
+
+  if (old.openaiKey) {
+    updates.openai_apiKey = old.openaiKey;
+    removes.push('openaiKey');
+  }
+  if (old.openaiModel) {
+    updates.openai_model = old.openaiModel;
+    removes.push('openaiModel');
+  }
+  if (old.openaiEndpoint) {
+    updates.openai_endpoint = old.openaiEndpoint;
+    removes.push('openaiEndpoint');
+  }
+
+  if (old.deepseekKey) {
+    updates.deepseek_apiKey = old.deepseekKey;
+    removes.push('deepseekKey');
+  }
+  if (old.deepseekModel) {
+    updates.deepseek_model = old.deepseekModel;
+    removes.push('deepseekModel');
+  }
+  if (old.deepseekEndpoint) {
+    updates.deepseek_endpoint = old.deepseekEndpoint;
+    removes.push('deepseekEndpoint');
+  }
+
+  return { updates, removes };
 }
 
 // ============================================
