@@ -140,6 +140,85 @@ async function handleTranslate({ texts, from, to }) {
   }
 }
 
+function extractTextFromLLMValue(value) {
+  if (value == null) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+
+  if (Array.isArray(value)) {
+    return value
+      .map(item => extractTextFromLLMValue(item))
+      .filter(Boolean)
+      .join('\n')
+      .trim();
+  }
+
+  if (typeof value === 'object') {
+    const directKeys = [
+      'text',
+      'translation',
+      'translatedText',
+      'output_text',
+      'output',
+      'content',
+      'value',
+      'result'
+    ];
+
+    for (const key of directKeys) {
+      if (key in value) {
+        const extracted = extractTextFromLLMValue(value[key]);
+        if (extracted) return extracted;
+      }
+    }
+
+    if (Array.isArray(value.translations)) {
+      const extracted = value.translations
+        .map(item => extractTextFromLLMValue(item))
+        .filter(Boolean)
+        .join('\n')
+        .trim();
+      if (extracted) return extracted;
+    }
+  }
+
+  return '';
+}
+
+function normalizeTranslationItem(item) {
+  const text = extractTextFromLLMValue(item);
+  if (text) return text;
+  if (item == null) return '';
+  try {
+    return JSON.stringify(item);
+  } catch {
+    return String(item);
+  }
+}
+
+function parseLLMTranslations(rawContent, texts) {
+  let translations;
+  const content = typeof rawContent === 'string' ? rawContent : extractTextFromLLMValue(rawContent);
+
+  try {
+    const cleaned = content.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
+    const parsed = JSON.parse(cleaned);
+    if (Array.isArray(parsed)) {
+      translations = parsed.map(normalizeTranslationItem);
+    } else if (parsed && Array.isArray(parsed.translations)) {
+      translations = parsed.translations.map(normalizeTranslationItem);
+    } else {
+      translations = [normalizeTranslationItem(parsed)];
+    }
+  } catch {
+    translations = content.split('\n').map(line => line.trim()).filter(Boolean);
+  }
+
+  if (!Array.isArray(translations)) translations = [normalizeTranslationItem(translations)];
+  while (translations.length < texts.length) translations.push('');
+  return translations.slice(0, Math.max(texts.length, translations.length));
+}
+
 // ============================================
 // Google 翻译（免费，无需 API Key）— 批量模式
 // ============================================
@@ -308,18 +387,7 @@ async function openaiTranslate(texts, targetLang, langName, provider) {
   const data = await response.json();
   const content = data.choices?.[0]?.message?.content;
   if (!content) throw new Error('API returned empty response');
-
-  let translations;
-  try {
-    const cleaned = content.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
-    translations = JSON.parse(cleaned);
-  } catch {
-    translations = content.split('\n').filter(l => l.trim());
-  }
-  if (!Array.isArray(translations)) translations = [translations];
-  while (translations.length < texts.length) translations.push('');
-
-  return { translations };
+  return { translations: parseLLMTranslations(content, texts) };
 }
 
 // ============================================
@@ -365,19 +433,9 @@ async function claudeTranslate(texts, targetLang, langName, provider) {
   }
 
   const data = await response.json();
-  const content = data.content?.[0]?.text;
+  const content = data.content?.[0]?.text || data.content;
   if (!content) throw new Error('Claude API returned empty response');
-
-  let translations;
-  try {
-    translations = JSON.parse(content);
-  } catch {
-    translations = content.split('\n').filter(l => l.trim());
-  }
-  if (!Array.isArray(translations)) translations = [translations];
-  while (translations.length < texts.length) translations.push('');
-
-  return { translations };
+  return { translations: parseLLMTranslations(content, texts) };
 }
 
 // ============================================
