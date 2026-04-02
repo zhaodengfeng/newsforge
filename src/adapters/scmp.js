@@ -8,8 +8,20 @@ class SCMPAdapter extends BaseAdapter {
 
   isArticlePage() {
     const url = this.getURL();
-    return /scmp\.com\/.+\/article\/\d+/.test(url) ||
-           document.querySelector('article') !== null;
+    const canonical = document.querySelector('link[rel="canonical"]')?.href || '';
+    let pathname = '';
+    let canonicalPath = '';
+    try {
+      pathname = new URL(url).pathname || '';
+    } catch (e) {}
+    try {
+      canonicalPath = new URL(canonical).pathname || '';
+    } catch (e) {}
+
+    return /\/article\/\d+(?:\/|$)/.test(pathname) ||
+           /\/article\/\d+(?:\/|$)/.test(canonicalPath) ||
+           /scmp\.com\/.+\/article\/\d+/.test(url) ||
+           /scmp\.com\/.+\/article\/\d+/.test(canonical);
   }
 
   getTitle() {

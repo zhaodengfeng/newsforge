@@ -5,7 +5,14 @@
   let currentAdapter = null;
   let floatIcon = null;
   let adapters = [];
+  let iconGuardObserver = null;
   let _iconRecoveryTimer = null;
+  let currentPageURL = '';
+  let articleDetectionObserver = null;
+  let articleDetectionPollTimer = null;
+  let articleDetectionStopTimer = null;
+  let pageStateObserver = null;
+  let pageStateCheckTimer = null;
 
   function createAdapters() {
     try {
@@ -60,23 +67,104 @@
     }
   }
 
+  function syncAdapterToCurrentURL(force) {
+    const url = getPageURL();
+    if (!url) return false;
+    if (!force && url === currentPageURL && currentAdapter) return false;
+    currentPageURL = url;
+    selectAdapter(url);
+    return true;
+  }
+
+  function evaluatePageState(force) {
+    syncAdapterToCurrentURL(force);
+    if (currentAdapter && currentAdapter.isArticlePage()) {
+      injectFloatIcon();
+      return true;
+    }
+
+    if (ReaderRenderer.active || ReaderRenderer.overlay) {
+      ReaderRenderer.close();
+    }
+    removeFloatIcon();
+    return false;
+  }
+
+  function schedulePageStateCheck(reason) {
+    if (pageStateCheckTimer) {
+      clearTimeout(pageStateCheckTimer);
+    }
+
+    pageStateCheckTimer = setTimeout(() => {
+      pageStateCheckTimer = null;
+      console.log('[NewsForge] Reevaluating page state:', reason);
+      evaluatePageState(true);
+    }, 250);
+  }
+
   function onReady() {
+    startArticleDetection();
+
     const delays = [1500, 3500, 6000];
     let injected = false;
     delays.forEach(delay => {
       setTimeout(() => {
         if (injected) return;
-        if (currentAdapter && currentAdapter.isArticlePage()) {
+        if (evaluatePageState()) {
           console.log('[NewsForge] Article page detected, injecting icon (after ' + delay + 'ms)');
           injected = true;
-          injectFloatIcon();
         }
       }, delay);
     });
   }
 
+  function stopArticleDetection() {
+    if (articleDetectionObserver) {
+      articleDetectionObserver.disconnect();
+      articleDetectionObserver = null;
+    }
+    if (articleDetectionPollTimer) {
+      clearInterval(articleDetectionPollTimer);
+      articleDetectionPollTimer = null;
+    }
+    if (articleDetectionStopTimer) {
+      clearTimeout(articleDetectionStopTimer);
+      articleDetectionStopTimer = null;
+    }
+  }
+
+  function startArticleDetection() {
+    stopArticleDetection();
+
+    const tryDetect = () => {
+      if (document.getElementById('newsforge-float')) {
+        stopArticleDetection();
+        return;
+      }
+      if (evaluatePageState(true)) {
+        console.log('[NewsForge] Late article detection succeeded');
+        stopArticleDetection();
+      }
+    };
+
+    articleDetectionPollTimer = setInterval(tryDetect, 1200);
+    articleDetectionStopTimer = setTimeout(stopArticleDetection, 30000);
+
+    if (document.body) {
+      articleDetectionObserver = new MutationObserver(() => {
+        tryDetect();
+      });
+      articleDetectionObserver.observe(document.body, {
+        childList: true,
+        subtree: true
+      });
+    }
+  }
+
   function injectFloatIcon() {
     if (document.getElementById('newsforge-float')) return;
+
+    stopArticleDetection();
 
     floatIcon = document.createElement('div');
     floatIcon.id = 'newsforge-float';
@@ -108,7 +196,7 @@
     document.documentElement.appendChild(floatIcon);
 
     // MutationObserver: keep icon as last child of <html>
-    const _iconGuard = new MutationObserver(() => {
+    iconGuardObserver = new MutationObserver(() => {
       if (!floatIcon) return;
       if (!document.documentElement.contains(floatIcon)) {
         document.documentElement.appendChild(floatIcon);
@@ -123,8 +211,8 @@
         }
       }
     });
-    _iconGuard.observe(document.documentElement, { childList: true });
-    _iconGuard.observe(document.body, { childList: true, subtree: false });
+    iconGuardObserver.observe(document.documentElement, { childList: true });
+    iconGuardObserver.observe(document.body, { childList: true, subtree: false });
 
     // Fallback: periodic recovery (save ID for cleanup)
     _iconRecoveryTimer = setInterval(() => {
@@ -141,6 +229,20 @@
         }
       }
     }, 2000);
+  }
+
+  function removeFloatIcon() {
+    if (iconGuardObserver) {
+      iconGuardObserver.disconnect();
+      iconGuardObserver = null;
+    }
+    if (_iconRecoveryTimer) {
+      clearInterval(_iconRecoveryTimer);
+      _iconRecoveryTimer = null;
+    }
+    const existing = document.getElementById('newsforge-float');
+    if (existing) existing.remove();
+    floatIcon = null;
   }
 
   function openReader(options) {
@@ -236,24 +338,103 @@
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === 'open_reader') {
+      syncAdapterToCurrentURL(true);
       openReader();
       sendResponse({ ok: true });
     }
     if (msg.type === 'open_reader_translate') {
+      syncAdapterToCurrentURL(true);
       openReader({ autoTranslate: true });
       sendResponse({ ok: true });
     }
     if (msg.type === 'ping') {
+      const isArticle = evaluatePageState(true);
       sendResponse({
         ok: true,
-        isArticle: currentAdapter?.isArticlePage(),
+        isArticle,
         adapter: currentAdapter?.name
       });
     }
   });
 
+  function installNavigationWatcher() {
+    if (window.__NEWSFORGE_NAV_WATCHER_INSTALLED__) return;
+    window.__NEWSFORGE_NAV_WATCHER_INSTALLED__ = true;
+
+    const handleNavigation = () => {
+      const changed = syncAdapterToCurrentURL();
+      if (!changed) return;
+      console.log('[NewsForge] URL changed, reevaluating page:', currentPageURL);
+      onReady();
+      evaluatePageState(true);
+    };
+
+    const wrapHistoryMethod = (name) => {
+      const original = history[name];
+      if (typeof original !== 'function') return;
+      history[name] = function () {
+        const result = original.apply(this, arguments);
+        setTimeout(handleNavigation, 0);
+        return result;
+      };
+    };
+
+    wrapHistoryMethod('pushState');
+    wrapHistoryMethod('replaceState');
+    window.addEventListener('popstate', handleNavigation);
+    window.addEventListener('hashchange', handleNavigation);
+  }
+
+  function installPageStateWatcher() {
+    if (pageStateObserver) return;
+
+    pageStateObserver = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        const target = mutation.target;
+        const targetName = target?.nodeName?.toLowerCase?.() || '';
+        if (
+          targetName === 'title' ||
+          targetName === 'link' ||
+          targetName === 'main' ||
+          targetName === 'article' ||
+          targetName === 'body' ||
+          targetName === 'div'
+        ) {
+          schedulePageStateCheck(`mutation:${targetName}`);
+          return;
+        }
+      }
+    });
+
+    if (document.head) {
+      pageStateObserver.observe(document.head, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['href', 'content']
+      });
+    }
+
+    if (document.body) {
+      pageStateObserver.observe(document.body, {
+        childList: true,
+        subtree: true
+      });
+    }
+
+    window.addEventListener('pageshow', () => schedulePageStateCheck('pageshow'));
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        schedulePageStateCheck('visibilitychange');
+      }
+    });
+  }
+
   function init() {
     console.log('[NewsForge] init()');
+    if (document.documentElement) {
+      document.documentElement.setAttribute('data-newsforge-ready', '1');
+    }
 
     if (!createAdapters()) {
       setTimeout(init, 500);
@@ -262,14 +443,20 @@
 
     const url = getPageURL();
     if (url) {
+      currentPageURL = url;
       selectAdapter(url);
+      installNavigationWatcher();
+      installPageStateWatcher();
       onReady();
     } else {
       console.log('[NewsForge] URL not available locally, requesting from background');
       chrome.runtime.sendMessage({ type: 'get_tab_url' }, (resp) => {
         if (resp && resp.url) {
           console.log('[NewsForge] Got URL from background:', resp.url);
+          currentPageURL = resp.url;
           selectAdapter(resp.url);
+          installNavigationWatcher();
+          installPageStateWatcher();
           onReady();
         } else {
           console.warn('[NewsForge] Could not obtain page URL');

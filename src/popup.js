@@ -12,33 +12,135 @@ document.addEventListener('DOMContentLoaded', () => {
     issueVersion.textContent = `v${chrome.runtime.getManifest().version}`;
   }
 
+  const contentScript = chrome.runtime.getManifest().content_scripts?.[0] || null;
+
+  function isSupportedUrl(url) {
+    if (!url) return false;
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== 'https:') return false;
+      const host = parsed.hostname.toLowerCase();
+      return [
+        'bloomberg.com',
+        'wsj.com',
+        'nytimes.com',
+        'nyt.com',
+        'ft.com',
+        'economist.com',
+        'scmp.com'
+      ].some(domain => host === domain || host.endsWith(`.${domain}`));
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function sendPing(tabId) {
+    return new Promise((resolve) => {
+      chrome.tabs.sendMessage(tabId, { type: 'ping' }, (response) => {
+        if (chrome.runtime.lastError || !response) {
+          resolve(null);
+          return;
+        }
+        resolve(response);
+      });
+    });
+  }
+
+  function injectContentScripts(tabId) {
+    return new Promise((resolve, reject) => {
+      if (!contentScript?.js?.length) {
+        resolve();
+        return;
+      }
+
+      const target = { tabId, allFrames: false };
+      const onScriptsInjected = () => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+        resolve();
+      };
+
+      const injectScripts = () => {
+        chrome.scripting.executeScript({
+          target,
+          files: contentScript.js
+        }, onScriptsInjected);
+      };
+
+      if (contentScript.css?.length) {
+        chrome.scripting.insertCSS({
+          target,
+          files: contentScript.css
+        }, () => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+            return;
+          }
+          injectScripts();
+        });
+      } else {
+        injectScripts();
+      }
+    });
+  }
+
+  async function ensurePageReady(tab) {
+    if (!tab?.id) return null;
+
+    let response = await sendPing(tab.id);
+    if (response) return response;
+    if (!isSupportedUrl(tab.url)) return null;
+
+    try {
+      await injectContentScripts(tab.id);
+    } catch (e) {
+      console.warn('[NewsForge] Manual injection failed:', e);
+      return null;
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 200));
+    return sendPing(tab.id);
+  }
+
+  function updateStatus(response) {
+    if (!response) {
+      statusText.textContent = 'Unsupported site';
+      statusDot.classList.remove('active');
+      btnRead.disabled = true;
+      return;
+    }
+
+    if (response.isArticle) {
+      statusText.textContent = `${response.adapter} · Article`;
+      statusDot.classList.add('active');
+      btnRead.disabled = false;
+    } else {
+      statusText.textContent = `${response.adapter || 'Unknown'} · Not an article`;
+      statusDot.classList.remove('active');
+      btnRead.disabled = true;
+    }
+  }
+
   // 检测当前页面
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const tab = tabs[0];
     if (!tab) return;
-
-    chrome.tabs.sendMessage(tab.id, { type: 'ping' }, (response) => {
-      if (chrome.runtime.lastError || !response) {
-        statusText.textContent = 'Unsupported site';
-        statusDot.classList.remove('active');
-        return;
-      }
-
-      if (response.isArticle) {
-        statusText.textContent = `${response.adapter} · Article`;
-        statusDot.classList.add('active');
-        btnRead.disabled = false;
-      } else {
-        statusText.textContent = `${response.adapter || 'Unknown'} · Not an article`;
-      }
-    });
+    ensurePageReady(tab).then(updateStatus);
   });
 
   // 进入阅读模式
-  btnRead.addEventListener('click', () => {
+  btnRead.addEventListener('click', async () => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      chrome.tabs.sendMessage(tabs[0].id, { type: 'open_reader' });
-      window.close();
+      const tab = tabs[0];
+      if (!tab) return;
+      ensurePageReady(tab).then((response) => {
+        updateStatus(response);
+        if (!response?.isArticle) return;
+        chrome.tabs.sendMessage(tab.id, { type: 'open_reader' });
+        window.close();
+      });
     });
   });
 

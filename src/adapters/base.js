@@ -6,9 +6,19 @@ class BaseAdapter {
   }
 
   getURL() {
+    try {
+      if (window.location && window.location.href) {
+        this._pageURL = window.location.href;
+        return this._pageURL;
+      }
+    } catch (e) {}
+    try {
+      if (document.URL) {
+        this._pageURL = document.URL;
+        return this._pageURL;
+      }
+    } catch (e) {}
     if (this._pageURL) return this._pageURL;
-    try { return window.location.href; } catch (e) {}
-    try { return document.URL; } catch (e) {}
     return '';
   }
 
