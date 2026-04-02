@@ -105,6 +105,27 @@ class BloombergAdapter extends BaseAdapter {
     return false;
   }
 
+  _isRelatedLinksTable(el) {
+    if (!el) return false;
+
+    const table = el.closest('table, [class*="RichtextMedia_articleTable"], [class*="articleTable"]');
+    if (!table) return false;
+
+    const links = Array.from(table.querySelectorAll('a[href]'));
+    const storyLinks = links.filter(link => {
+      const href = link.getAttribute('href') || '';
+      return /bloomberg\.com\/(news|graphics|opinion|features)\//.test(href);
+    });
+
+    if (storyLinks.length < 2) return false;
+
+    const texts = storyLinks
+      .map(link => (link.innerText || '').replace(/\s+/g, ' ').trim())
+      .filter(text => text.length >= 30 && text.length <= 140);
+
+    return texts.length >= 2;
+  }
+
   getParagraphs() {
     const paragraphs = [];
     const seen = new Set();
@@ -133,6 +154,11 @@ class BloombergAdapter extends BaseAdapter {
 
       if (el.closest('nav, header, footer, aside, [class*="newsletter"], [class*="promo"], [class*="signup"], [class*="marketing"], [class*="ad-slot"], [class*="in-article-ad"]')) continue;
       if (el.closest('dvz-ai2html-wrapper')) continue;
+
+      if (this._isRelatedLinksTable(el)) {
+        if (paragraphs.length > 0) break;
+        continue;
+      }
 
       const tagName = el.tagName.toLowerCase();
 
