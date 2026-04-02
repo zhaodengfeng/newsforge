@@ -271,6 +271,14 @@ body.nf-reader-active [id*="VideoPlayer"] {
   letter-spacing: -0.5px;
 }
 
+.nf-standfirst {
+  font-family: var(--font-serif);
+  font-size: 24px;
+  line-height: 1.55;
+  margin: 0 0 32px;
+  color: var(--text-secondary);
+}
+
 .nf-meta {
   display: flex;
   align-items: center;
@@ -378,6 +386,32 @@ body.nf-reader-active [id*="VideoPlayer"] {
   display: none;
 }
 .nf-title.nf-translated.nf-target-only.nf-show-original .nf-original {
+  display: block;
+}
+
+.nf-standfirst.nf-translated .nf-original,
+.nf-standfirst.nf-translated .nf-translation {
+  font-family: var(--font-title-cn);
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
+  margin-top: 0;
+  animation: none;
+}
+.nf-standfirst.nf-translated .nf-translation {
+  color: var(--accent-hover);
+  margin-top: 8px;
+}
+.nf-standfirst.nf-translated.nf-target-only .nf-translation {
+  color: var(--text-secondary);
+  font-size: inherit;
+  line-height: inherit;
+  font-family: var(--font-title-cn);
+}
+.nf-standfirst.nf-translated.nf-target-only.nf-show-original .nf-translation {
+  display: none;
+}
+.nf-standfirst.nf-translated.nf-target-only.nf-show-original .nf-original {
   display: block;
 }
 
@@ -620,6 +654,10 @@ body.nf-reader-active [id*="VideoPlayer"] {
 
   .nf-title {
     font-size: 30px;
+  }
+
+  .nf-standfirst {
+    font-size: 20px;
   }
 
   .nf-paragraph {

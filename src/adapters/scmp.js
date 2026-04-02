@@ -94,9 +94,104 @@ class SCMPAdapter extends BaseAdapter {
 
   _isAuthorModule(el) {
     if (!el) return false;
-    if (el.closest('a[href*="/author/"]')) return true;
-    if (el.querySelector && el.querySelector('a[href*="/author/"]')) return true;
-    return !!el.closest('[class*="author"], [class*="byline"], [class*="bio"], [class*="profile"], [class*="contributor"]');
+    const text = (el.innerText || '').replace(/\s+/g, ' ').trim();
+    const cls = `${el.className || ''} ${el.id || ''}`.toLowerCase();
+    const hasAuthorLink = !!(
+      el.closest('a[href*="/author/"]') ||
+      (el.querySelector && el.querySelector('a[href*="/author/"]'))
+    );
+    const hasAuthorClass = /author|byline|bio|profile|contributor/.test(cls);
+    const hasBioText = /follow|joined the post|reporter on the|worked with reuters|china desk/i.test(text);
+    const img = el.tagName?.toLowerCase() === 'img' ? el : el.querySelector?.('img');
+    const imgSrc = img ? this._resolveImageSrc(img) : '';
+    const hasAvatarLikeImage = !!imgSrc && /300x300|author|liu_zhen|public\/[^\/]+\.jpg/i.test(imgSrc);
+
+    if (hasAuthorLink && (hasAuthorClass || hasBioText || text.length < 250 || hasAvatarLikeImage)) {
+      return true;
+    }
+
+    return !hasAuthorLink && hasAuthorClass && hasBioText;
+  }
+
+  _isTerminalModule(el) {
+    if (!el) return false;
+    if (this._isAuthorModule(el)) return true;
+
+    const cls = `${el.className || ''} ${el.id || ''}`.toLowerCase();
+    const text = (el.innerText || '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+    if (/piano-metering|paywall|swiper|related|topic|conversation|discover|recommend|voice-select|audio-player/i.test(cls)) {
+      return true;
+    }
+
+    return /^(related topics|before you go|discover more stories on|select voice|make scmp preferred on google)/.test(text);
+  }
+
+  _hasNestedContentChildren(el) {
+    if (!el || !el.children || el.children.length === 0) return false;
+
+    for (const child of el.children) {
+      const tag = child.tagName.toLowerCase();
+      if (/^(p|h2|h3|h4|figure|picture|img|section)$/.test(tag)) return true;
+      if (tag === 'div') {
+        if (child.querySelector('img, figure, picture, p, h2, h3, h4, section')) return true;
+        const childText = (child.innerText || '').replace(/\s+/g, ' ').trim();
+        if (childText.length >= 40) return true;
+      }
+    }
+
+    return false;
+  }
+
+  _isLeafTextBlock(el) {
+    if (!el) return false;
+    const tag = el.tagName.toLowerCase();
+    if (tag !== 'div' && tag !== 'section') return false;
+
+    const text = (el.innerText || '').replace(/\s+/g, ' ').trim();
+    if (text.length < 40 || text.length > 800) return false;
+    if (this._isAuthorModule(el) || this._isTerminalModule(el)) return false;
+    if (el.querySelector('img, figure, picture')) return false;
+    if (this._hasNestedContentChildren(el)) return false;
+
+    const cls = `${el.className || ''} ${el.id || ''}`.toLowerCase();
+    if (/newsletter|promo|advert|sponsor|listen|audio|voice|toolbar|meta|time|date|caption/i.test(cls)) {
+      return false;
+    }
+
+    return !/^(published:|updated:|2-min read|listen|follow\b|advertisement\b)/i.test(text);
+  }
+
+  _isBoilerplateText(text) {
+    return /^(sign up|subscribe|newsletter|most popular|what to read next|related|related topics|recommended|keep reading|more stories|more from scmp|before you go|discover more stories on|make scmp preferred on google|select voice|listen\b)/i.test(text) ||
+      /^content provided by/i.test(text) ||
+      /^copyright/i.test(text) ||
+      /^\d+\s+(hours?|days?|minutes?)\s+ago$/i.test(text) ||
+      /^share your thoughts$/i.test(text) ||
+      /join the conversation/i.test(text) ||
+      /^watch:/i.test(text) ||
+      /^(published:|updated:)/i.test(text);
+  }
+
+  getStandfirst() {
+    const container = this.getContentContainer();
+    if (!container) return '';
+
+    const headings = container.querySelectorAll('h3');
+    for (const el of headings) {
+      if (el.closest('nav, header, footer, aside')) continue;
+      if (this._isTerminalModule(el)) continue;
+
+      const text = (el.innerText || '').replace(/\s+/g, ' ').trim();
+      if (text.length < 40 || text.length > 300) continue;
+
+      const linkedArticle = el.querySelector('a[href*="/article/"]') || el.closest('a[href*="/article/"]');
+      if (linkedArticle) continue;
+
+      return text;
+    }
+
+    return '';
   }
 
   // Normalize SCMP image URLs for deduplication
@@ -113,6 +208,7 @@ class SCMPAdapter extends BaseAdapter {
     const seen = new Set();
     const seenImgKeys = new Set();
     let hasBodyText = false;
+    const standfirst = this.getStandfirst();
     const featuredSrc = this.getFeaturedImage();
     if (featuredSrc) {
       seenImgKeys.add(this._normalizeImgUrl(featuredSrc));
@@ -123,7 +219,7 @@ class SCMPAdapter extends BaseAdapter {
 
     let _videoParent = null;
     const endMarker = this._findArticleEndMarker(container);
-    const elements = container.querySelectorAll('p, h2, h3, h4, img, figure, picture');
+    const elements = container.querySelectorAll('p, h2, h3, h4, img, figure, picture, div, section');
 
     for (let i = 0; i < elements.length; i++) {
       const el = elements[i];
@@ -134,7 +230,12 @@ class SCMPAdapter extends BaseAdapter {
         if (pos & Node.DOCUMENT_POSITION_FOLLOWING) break;
       }
 
-      if (el.closest('nav, header, footer, aside, [class*="newsletter"], [class*="promo"], [class*="ad-slot"], [class*="ad-container"], [class*="in-article-ad"], [class*="-ad-"], [class*="advert"], [class*="sponsor"], [class*="related"], [class*="most"], [class*="trending"], [class*="video"], [class*="widget"], [class*="paywall"], [class*="piano-metering"]')) continue;
+      if (el.closest('nav, header, footer, aside, [class*="newsletter"], [class*="promo"], [class*="ad-slot"], [class*="ad-container"], [class*="in-article-ad"], [class*="-ad-"], [class*="advert"], [class*="sponsor"], [class*="most"], [class*="trending"], [class*="video"], [class*="widget"], [class*="paywall"], [class*="piano-metering"]')) continue;
+
+      if (this._isTerminalModule(el)) {
+        if (hasBodyText) break;
+        continue;
+      }
 
       if (this._isAuthorModule(el)) {
         if (hasBodyText) break;
@@ -142,6 +243,10 @@ class SCMPAdapter extends BaseAdapter {
       }
 
       const tagName = el.tagName.toLowerCase();
+
+      if ((tagName === 'div' || tagName === 'section') && !this._isLeafTextBlock(el)) {
+        continue;
+      }
 
       // Images: handle img, figure, picture
       if (tagName === 'img' || tagName === 'figure' || tagName === 'picture') {
@@ -190,7 +295,7 @@ class SCMPAdapter extends BaseAdapter {
 
       // Text
       if (el.closest('figcaption')) continue;
-      const text = (el.innerText || '').trim();
+      const text = (el.innerText || '').replace(/\s+/g, ' ').trim();
 
       // Video title detection: skip <p> that follows a duration <p> in same parent
       if (tagName === 'p' && _videoParent) {
@@ -210,12 +315,8 @@ class SCMPAdapter extends BaseAdapter {
 
       if (text.length < 15) continue;
       if (seen.has(text)) continue;
-
-      // Keep the standfirst once, but avoid rendering the duplicated summary paragraph.
-      if (tagName === 'h3' && !paragraphs.some(p => p.type === 'text')) {
+      if (standfirst && text === standfirst) {
         seen.add(text);
-        paragraphs.push({ type: 'text', level: 0, text });
-        hasBodyText = true;
         continue;
       }
 
@@ -225,14 +326,7 @@ class SCMPAdapter extends BaseAdapter {
         if (link) continue;
       }
 
-      // Filter common non-article content
-      if (/^(sign up|subscribe|newsletter|most popular|what to read next|related|recommended|keep reading|more stories|more from scmp)/i.test(text)) continue;
-      if (/^content provided by/i.test(text)) continue;
-      if (/^copyright/i.test(text)) continue;
-      if (/^\d+\s+(hours?|days?|minutes?)\s+ago$/i.test(text)) continue;
-      if (/^share your thoughts$/i.test(text)) continue;
-      if (/join the conversation/i.test(text)) continue;
-      if (/^watch:/i.test(text)) continue;
+      if (this._isBoilerplateText(text)) continue;
 
       seen.add(text);
       hasBodyText = true;

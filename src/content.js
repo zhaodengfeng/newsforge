@@ -201,6 +201,7 @@
     try {
       ReaderRenderer.render({
         title: currentAdapter.getTitle(),
+        standfirst: currentAdapter.getStandfirst(),
         author: currentAdapter.getAuthor(),
         date: currentAdapter.getPublishDate(),
         source: currentAdapter.name.charAt(0).toUpperCase() + currentAdapter.name.slice(1),

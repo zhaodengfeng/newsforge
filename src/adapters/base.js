@@ -80,6 +80,10 @@ class BaseAdapter {
     return '';
   }
 
+  getStandfirst() {
+    return '';
+  }
+
   getParagraphs() {
     const container = this.getContentContainer();
     if (!container) return [];

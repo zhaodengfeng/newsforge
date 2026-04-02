@@ -79,6 +79,9 @@ const ReaderRenderer = {
       </div>
       <div class="nf-reader-content">
         <h1 class="nf-title" data-original="${this.escapeHtml(article.title)}">${this.escapeHtml(article.title)}</h1>
+        ${article.standfirst ? `
+          <div class="nf-standfirst" data-original="${this.escapeHtml(article.standfirst)}">${this.escapeHtml(article.standfirst)}</div>
+        ` : ''}
         ${(article.author || article.date) ? `
           <div class="nf-meta">
             ${article.author ? `<div class="nf-author">${this.escapeHtml(article.author)}</div>` : ''}
@@ -229,7 +232,7 @@ const ReaderRenderer = {
 
     // Collect body elements in DOM order
     const bodyElements = [];
-    overlay.querySelectorAll('.nf-heading[data-original], .nf-paragraph[data-original]')
+    overlay.querySelectorAll('.nf-standfirst[data-original], .nf-heading[data-original], .nf-paragraph[data-original]')
       .forEach(el => bodyElements.push(el));
 
     const total = (titleEl?.dataset.original ? 1 : 0) + bodyElements.length;
@@ -252,7 +255,8 @@ const ReaderRenderer = {
       el.classList.add('nf-translated');
       const isTitle = el.classList.contains('nf-title');
       const isHeading = el.classList.contains('nf-heading');
-      if (isTitle || isHeading) el.classList.add('nf-title-like');
+      const isStandfirst = el.classList.contains('nf-standfirst');
+      if (isTitle || isHeading || isStandfirst) el.classList.add('nf-title-like');
       if (mode === 'target') el.classList.add('nf-target-only');
     };
 
@@ -362,6 +366,7 @@ const ReaderRenderer = {
 
     const styleMap = {
       '.nf-title': `font-size:38px;font-weight:700;line-height:1.2;margin:0 0 24px;color:#1a1815;letter-spacing:-0.5px;font-family:${cnSerif};`,
+      '.nf-standfirst': `font-size:24px;line-height:1.55;margin:0 0 32px;color:#5a5651;font-family:${cnSerif};`,
       '.nf-meta': 'display:flex;align-items:center;gap:20px;margin-bottom:40px;padding-bottom:32px;border-bottom:1px solid #e8e4df;',
       '.nf-author': `font-family:${cnSans};font-size:14px;font-weight:500;color:#5a5651;`,
       '.nf-heading': `font-size:24px;font-weight:600;margin:44px 0 20px;color:#1a1815;letter-spacing:-0.2px;padding-top:12px;border-top:2px solid #c45d3e;display:inline-block;font-family:${cnSerif};`,
@@ -403,6 +408,20 @@ const ReaderRenderer = {
       el.style.fontFamily = cnSerif;
       el.style.letterSpacing = '-0.5px';
     });
+    clone.querySelectorAll('.nf-standfirst .nf-original').forEach(el => {
+      el.style.fontSize = '24px';
+      el.style.lineHeight = '1.55';
+      el.style.fontFamily = cnSerif;
+      el.style.color = '#5a5651';
+      el.style.marginTop = '0';
+    });
+    clone.querySelectorAll('.nf-standfirst .nf-translation').forEach(el => {
+      el.style.fontSize = '24px';
+      el.style.lineHeight = '1.55';
+      el.style.fontFamily = cnSerif;
+      el.style.color = '#a84d32';
+      el.style.marginTop = '8px';
+    });
     // 副标题翻译恢复副标题字号
     clone.querySelectorAll('.nf-heading .nf-original').forEach(el => {
       el.style.fontSize = '24px';
@@ -430,6 +449,10 @@ const ReaderRenderer = {
       });
       clone.querySelectorAll('.nf-title .nf-translation').forEach(el => {
         el.style.color = '#1a1815';
+      });
+      clone.querySelectorAll('.nf-standfirst .nf-translation').forEach(el => {
+        el.style.color = '#5a5651';
+        el.style.marginTop = '0';
       });
       clone.querySelectorAll('.nf-heading .nf-translation').forEach(el => {
         el.style.color = '#1a1815';
