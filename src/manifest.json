@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "NewsForge - News Reader & Translator",
-  "version": "26.4.1",
+  "version": "26.4.2",
   "description": "Clean reading mode with AI translation and screenshot/PDF sharing for Bloomberg, WSJ, NYTimes, FT, The Economist and SCMP.",
   "permissions": [
     "storage",
