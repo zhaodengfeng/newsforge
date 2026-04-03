@@ -164,6 +164,14 @@ const ReaderRenderer = {
     return this.overlay?.querySelector('.nf-translate-mode')?.value || 'bilingual';
   },
 
+  buildTranslationContext() {
+    return {
+      source: this.article?.source || '',
+      title: this.article?.title || '',
+      summary: this.article?.standfirst || ''
+    };
+  },
+
   applyTranslateMode(mode) {
     if (!this.overlay) return;
     this.overlay.querySelectorAll('.nf-translated').forEach(el => {
@@ -218,6 +226,7 @@ const ReaderRenderer = {
     const progressBar = overlay.querySelector('#nf-progress');
     const mode = this.getTranslateMode();
     const titleEl = overlay.querySelector('.nf-title');
+    const translationContext = this.buildTranslationContext();
 
     // Read target language from storage
     try {
@@ -273,7 +282,13 @@ const ReaderRenderer = {
         btn.querySelector('span').textContent = `Translating 1/${total}...`;
         const response = await chrome.runtime.sendMessage({
           type: 'translate',
-          data: { texts: [titleEl.dataset.original], from: 'en', to: targetLang }
+          data: {
+            texts: [titleEl.dataset.original],
+            from: 'en',
+            to: targetLang,
+            contentType: 'headline',
+            context: translationContext
+          }
         });
         if (isStale()) return;
         if (response?.error) throw new Error(response.error);
@@ -293,7 +308,13 @@ const ReaderRenderer = {
 
         const response = await chrome.runtime.sendMessage({
           type: 'translate',
-          data: { texts: chunkTexts, from: 'en', to: targetLang }
+          data: {
+            texts: chunkTexts,
+            from: 'en',
+            to: targetLang,
+            contentType: 'body',
+            context: translationContext
+          }
         });
 
         if (isStale()) return;

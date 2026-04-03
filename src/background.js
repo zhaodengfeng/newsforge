@@ -118,13 +118,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 // ============================================
 // 翻译路由
 // ============================================
-async function handleTranslate({ texts, from, to, providerOverride, configOverride }) {
+async function handleTranslate({ texts, from, to, providerOverride, configOverride, context, contentType }) {
   const settings = await chrome.storage.local.get(['translationProvider', 'targetLang']);
   const provider = providerOverride || settings.translationProvider || 'google';
   const targetLang = to || settings.targetLang || 'zh-CN';
   const safeTexts = Array.isArray(texts) ? texts : [];
   const LANG_NAMES = { 'zh-CN': 'Simplified Chinese', 'zh-TW': 'Traditional Chinese', 'en': 'English', 'ja': 'Japanese', 'ko': 'Korean', 'fr': 'French', 'de': 'German', 'es': 'Spanish', 'ru': 'Russian', 'pt': 'Portuguese', 'it': 'Italian', 'ar': 'Arabic' };
   const langName = LANG_NAMES[targetLang] || targetLang;
+  const promptContext = buildPromptContext(context);
 
   try {
     switch (provider) {
@@ -136,15 +137,123 @@ async function handleTranslate({ texts, from, to, providerOverride, configOverri
         return deeplTranslate(safeTexts, targetLang, langName, provider, configOverride);
       case 'claude':
       case 'custom_claude':
-        return claudeTranslate(safeTexts, targetLang, langName, provider, configOverride);
+        return claudeTranslate(safeTexts, targetLang, langName, provider, configOverride, promptContext, contentType);
       default:
-        return openaiTranslate(safeTexts, targetLang, langName, provider, configOverride);
+        return openaiTranslate(safeTexts, targetLang, langName, provider, configOverride, promptContext, contentType);
     }
   } catch (error) {
     const wrapped = new Error(formatTranslationError(provider, error));
     wrapped.userMessage = formatTranslationError(provider, error);
     throw wrapped;
   }
+}
+
+function buildPromptContext(context = {}) {
+  const cleaned = {};
+  const entries = [
+    ['source', 80],
+    ['title', 240],
+    ['summary', 360],
+    ['terms', 300]
+  ];
+
+  for (const [key, maxLen] of entries) {
+    const value = typeof context[key] === 'string' ? context[key].replace(/\s+/g, ' ').trim() : '';
+    if (value) cleaned[key] = value.slice(0, maxLen);
+  }
+
+  return cleaned;
+}
+
+function buildTranslationInput(texts) {
+  return texts.map((text, index) => ({
+    id: index,
+    text: text == null ? '' : String(text)
+  }));
+}
+
+function getContentTypeLabel(contentType) {
+  switch (contentType) {
+    case 'headline':
+      return 'headline';
+    case 'standfirst':
+      return 'standfirst';
+    case 'heading':
+      return 'section heading';
+    default:
+      return 'body';
+  }
+}
+
+function buildContextBlock(context) {
+  const lines = [];
+  if (context.source) lines.push(`Source: ${context.source}`);
+  if (context.title) lines.push(`Title: ${context.title}`);
+  if (context.summary) lines.push(`Standfirst: ${context.summary}`);
+  if (context.terms) lines.push(`Terms: ${context.terms}`);
+  return lines.length ? `Context:\n${lines.join('\n')}` : '';
+}
+
+function buildNewsTranslationPrompt({ provider, model, langName, contentType, context, texts }) {
+  const contentLabel = getContentTypeLabel(contentType);
+  const input = buildTranslationInput(texts);
+  const inputJson = JSON.stringify(input);
+  const contextBlock = buildContextBlock(context);
+  const isMTModel = typeof model === 'string' && model.startsWith('qwen-mt-');
+  const isHeadline = contentType === 'headline';
+
+  if (isMTModel) {
+    const systemPrompt = isHeadline
+      ? `Translate the input news headline into ${langName}. Return only a JSON array of translated strings.`
+      : `Translate the input news ${contentLabel} into ${langName}. Return only a JSON array of translated strings in the same order as the input array.`;
+
+    const userPrompt = [
+      contextBlock,
+      'Use the context only to resolve ambiguity. Do not translate the instructions.',
+      'Input JSON array:',
+      JSON.stringify(texts)
+    ].filter(Boolean).join('\n\n');
+
+    return { systemPrompt, userPrompt, useSystemRole: false };
+  }
+
+  const systemPrompt = isHeadline
+    ? `You are a professional native-level news headline translator working into ${langName}.
+
+Rules:
+1. Produce a concise, natural, publication-ready news headline.
+2. Preserve the original meaning, tone, and news angle.
+3. Keep names, numbers, dates, and factual claims accurate.
+4. Use any provided context only to resolve ambiguity.
+5. Return only valid JSON.
+
+Output format:
+{"translations":[{"id":0,"text":"..."}]}`
+    : `You are a professional native-level news translator working into ${langName}.
+
+Translate with the standards of a high-quality news desk.
+
+Rules:
+1. Return only valid JSON.
+2. Preserve facts, numbers, dates, and attributions exactly.
+3. Keep the journalistic tone, register, and structure appropriate for news writing.
+4. Use the established target-language form for people, organizations, and places when one clearly exists; otherwise preserve the original term.
+5. Translate quotes faithfully without adding interpretation.
+6. Keep section headings concise and news-style.
+7. Use any provided context only to disambiguate meaning; do not introduce information not present in the segment itself.
+8. Return translations in the same order as the input.
+
+Output format:
+{"translations":[{"id":0,"text":"..."},{"id":1,"text":"..."}]}`;
+
+  const userPrompt = [
+    contextBlock,
+    `Translate the following news ${contentLabel} into ${langName}.`,
+    'Input:',
+    inputJson
+  ].filter(Boolean).join('\n\n');
+
+  return { systemPrompt, userPrompt, useSystemRole: true };
 }
 
 function providerDisplayName(provider) {
@@ -280,6 +389,46 @@ function normalizeTranslationItem(item) {
   }
 }
 
+function parseJsonLikeTranslationLines(content) {
+  const lines = content
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean);
+
+  const cleaned = [];
+
+  for (const line of lines) {
+    if (/^[\[\]\{\}]$/.test(line)) continue;
+
+    let candidate = line
+      .replace(/^[\[,]\s*/, '')
+      .replace(/\s*[,]\s*$/, '')
+      .replace(/\s*[\]]\s*$/, '')
+      .trim();
+
+    if (!candidate) continue;
+
+    if ((candidate.startsWith('"') && candidate.endsWith('"')) || (candidate.startsWith('`') && candidate.endsWith('`'))) {
+      try {
+        const parsed = JSON.parse(candidate.replace(/^`|`$/g, '"'));
+        if (typeof parsed === 'string' && parsed.trim()) {
+          cleaned.push(parsed.trim());
+          continue;
+        }
+      } catch {
+        // fall through to string cleanup below
+      }
+    }
+
+    candidate = candidate.replace(/^"+|"+$/g, '').trim();
+    if (!candidate) continue;
+    if (/^[\[\]\{\},:]+$/.test(candidate)) continue;
+    cleaned.push(candidate);
+  }
+
+  return cleaned;
+}
+
 function parseLLMTranslations(rawContent, texts) {
   let translations;
   const content = typeof rawContent === 'string' ? rawContent : extractTextFromLLMValue(rawContent);
@@ -295,7 +444,10 @@ function parseLLMTranslations(rawContent, texts) {
       translations = [normalizeTranslationItem(parsed)];
     }
   } catch {
-    translations = content.split('\n').map(line => line.trim()).filter(Boolean);
+    translations = parseJsonLikeTranslationLines(content);
+    if (translations.length === 0) {
+      translations = content.split('\n').map(line => line.trim()).filter(Boolean);
+    }
   }
 
   if (!Array.isArray(translations)) translations = [normalizeTranslationItem(translations)];
@@ -426,7 +578,7 @@ async function microsoftTranslate(texts, targetLang) {
 // ============================================
 // OpenAI 兼容翻译
 // ============================================
-async function openaiTranslate(texts, targetLang, langName, provider, configOverride) {
+async function openaiTranslate(texts, targetLang, langName, provider, configOverride, context, contentType) {
   const cfg = await loadProviderConfig(provider, configOverride);
   const apiKey = cfg.apiKey;
   const model = cfg.model || PROVIDERS[provider]?.model || '';
@@ -435,19 +587,14 @@ async function openaiTranslate(texts, targetLang, langName, provider, configOver
   if (!apiKey) throw new Error('Please configure API Key in settings');
   if (!endpoint) throw new Error('Please configure API Endpoint in settings');
 
-  const isMTModel = model.startsWith('qwen-mt-');
-  const systemPrompt = `You are a professional translator. Translate the following text to ${langName}. Rules:
-1. Keep the translation natural and fluent
-2. Preserve proper nouns, brand names, and technical terms in English
-3. For numbers and dates, keep the original format
-4. Output a JSON array of translations, one for each input text
-5. Only output the JSON array, nothing else`;
-
-  const messages = isMTModel
-    ? [{ role: 'user', content: systemPrompt + '\n\n' + JSON.stringify(texts) }]
+  const prompt = buildNewsTranslationPrompt({ provider, model, langName, contentType, context, texts });
+  const messages = prompt.useSystemRole
+    ? [
+        { role: 'system', content: prompt.systemPrompt },
+        { role: 'user', content: prompt.userPrompt }
+      ]
     : [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: JSON.stringify(texts) }
+        { role: 'user', content: `${prompt.systemPrompt}\n\n${prompt.userPrompt}` }
       ];
 
   const response = await fetch(endpoint, {
@@ -477,7 +624,7 @@ async function openaiTranslate(texts, targetLang, langName, provider, configOver
 // ============================================
 // Claude API 翻译
 // ============================================
-async function claudeTranslate(texts, targetLang, langName, provider, configOverride) {
+async function claudeTranslate(texts, targetLang, langName, provider, configOverride, context, contentType) {
   const cfg = await loadProviderConfig(provider, configOverride);
   const apiKey = cfg.apiKey;
   const model = cfg.model || PROVIDERS[provider]?.model || '';
@@ -485,13 +632,7 @@ async function claudeTranslate(texts, targetLang, langName, provider, configOver
 
   if (!apiKey) throw new Error('Please configure API Key in settings');
   if (!endpoint) throw new Error('Please configure API Endpoint in settings');
-
-  const systemPrompt = `You are a professional translator. Translate the following text to ${langName}. Rules:
-1. Keep the translation natural and fluent
-2. Preserve proper nouns, brand names, and technical terms in English
-3. For numbers and dates, keep the original format
-4. Output a JSON array of translations, one for each input text
-5. Only output the JSON array, nothing else`;
+  const prompt = buildNewsTranslationPrompt({ provider, model, langName, contentType, context, texts });
 
   const response = await fetch(endpoint, {
     method: 'POST',
@@ -504,9 +645,9 @@ async function claudeTranslate(texts, targetLang, langName, provider, configOver
     body: JSON.stringify({
       model,
       max_tokens: 4096,
-      system: systemPrompt,
+      system: prompt.systemPrompt,
       messages: [
-        { role: 'user', content: JSON.stringify(texts) }
+        { role: 'user', content: prompt.userPrompt }
       ]
     })
   });
