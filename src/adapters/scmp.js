@@ -100,6 +100,23 @@ class SCMPAdapter extends BaseAdapter {
     return best?.el || titleEl.parentElement || null;
   }
 
+  _getTitleScopedArticleContainer() {
+    const titleEl = this._getActiveTitleElement();
+    let current = titleEl;
+
+    while (current && current !== document.body) {
+      if (current.tagName && current.tagName.toUpperCase() === 'ARTICLE') {
+        const text = (current.innerText || '').trim();
+        if (text.length > 500 && this._isElementVisible(current)) {
+          return current;
+        }
+      }
+      current = current.parentElement;
+    }
+
+    return null;
+  }
+
   getTitle() {
     const activeTitle = this._getActiveTitleElement();
     if (activeTitle) {
@@ -161,9 +178,26 @@ class SCMPAdapter extends BaseAdapter {
   }
 
   getContentContainer() {
+    const titleScopedArticle = this._getTitleScopedArticleContainer();
+    if (titleScopedArticle) {
+      return titleScopedArticle;
+    }
+
     const anchored = this._getActiveContentAnchor();
-    if (anchored && (anchored.innerText || '').trim().length > 200) {
-      return anchored;
+    if (anchored) {
+      const anchoredText = (anchored.innerText || '').trim();
+      const anchoredPCount = anchored.querySelectorAll('p').length;
+      const anchoredSectionCount = anchored.querySelectorAll('section').length;
+      const anchoredLeafDivCount = Array.from(anchored.querySelectorAll('div')).filter(el => this._isLeafTextBlock(el)).length;
+      const looksBodyLike =
+        anchoredText.length > 800 ||
+        anchoredPCount >= 2 ||
+        anchoredLeafDivCount >= 3 ||
+        anchoredSectionCount > 0;
+
+      if (anchoredText.length > 200 && looksBodyLike) {
+        return anchored;
+      }
     }
 
     const titleHint = this._getCurrentTitleHint();
@@ -380,150 +414,165 @@ class SCMPAdapter extends BaseAdapter {
   }
 
   getParagraphs() {
-    const paragraphs = [];
-    const seen = new Set();
-    const seenImgKeys = new Set();
-    let hasBodyText = false;
     const url = this.getURL();
     const isPlusPage = /\/plus\//i.test(url) || /[?&]display=plus\b/i.test(url);
     const standfirst = this.getStandfirst();
     const featuredSrc = this.getFeaturedImage();
-    if (featuredSrc) {
-      seenImgKeys.add(this._normalizeImgUrl(featuredSrc));
-    }
-
     const container = this.getContentContainer();
-    if (!container) return paragraphs;
+    if (!container) return [];
     const titleEl = this._getActiveTitleElement();
-    const bodyRoot = (isPlusPage && titleEl && container.contains(titleEl))
+    const primaryRoot = (isPlusPage && titleEl && container.contains(titleEl))
       ? container
       : (this._getBodyRoot(container, true) || this._getBodyRoot(container, false) || container);
 
-    let _videoParent = null;
-    const endMarker = bodyRoot === container ? this._findArticleEndMarker(container) : null;
-    const elements = bodyRoot.querySelectorAll('p, h2, h3, h4, img, figure, picture, div');
+    const collectFromRoot = (root, useEndMarker = false) => {
+      const paragraphs = [];
+      const seen = new Set();
+      const seenImgKeys = new Set();
+      let hasBodyText = false;
+      let videoParent = null;
 
-    for (let i = 0; i < elements.length; i++) {
-      const el = elements[i];
-
-      if (titleEl) {
-        const pos = titleEl.compareDocumentPosition(el);
-        if (pos & Node.DOCUMENT_POSITION_PRECEDING) continue;
+      if (featuredSrc) {
+        seenImgKeys.add(this._normalizeImgUrl(featuredSrc));
       }
 
-      if (endMarker) {
-        if (el === endMarker) break;
-        const pos = endMarker.compareDocumentPosition(el);
-        if (pos & Node.DOCUMENT_POSITION_FOLLOWING) break;
-      }
+      const endMarker = useEndMarker ? this._findArticleEndMarker(root) : null;
+      const elements = root.querySelectorAll('p, h2, h3, h4, img, figure, picture, div');
 
-      if (el.closest('nav, header, footer, aside, [class*="newsletter"], [class*="promo"], [class*="ad-slot"], [class*="ad-container"], [class*="in-article-ad"], [class*="-ad-"], [class*="advert"], [class*="sponsor"], [class*="most"], [class*="trending"], [class*="video"], [class*="widget"], [class*="paywall"], [class*="piano-metering"]')) continue;
+      for (let i = 0; i < elements.length; i++) {
+        const el = elements[i];
 
-      if (this._isTerminalModule(el)) {
-        if (hasBodyText) break;
-        continue;
-      }
-
-      if (this._isAuthorModule(el)) {
-        if (hasBodyText) break;
-        continue;
-      }
-
-      const tagName = el.tagName.toLowerCase();
-
-      if ((tagName === 'div' || tagName === 'section') && !this._isLeafTextBlock(el)) {
-        continue;
-      }
-
-      // Images: handle img, figure, picture
-      if (tagName === 'img' || tagName === 'figure' || tagName === 'picture') {
-        const img = tagName === 'img' ? el : el.querySelector('img');
-        if (!img) continue;
-        let src = this._resolveImageSrc(img);
-        // Try <picture> <source srcset> fallback
-        if (!src) {
-          const picEl = tagName === 'picture' ? el : (el.closest ? el.closest('picture') : null);
-          if (!picEl && tagName === 'figure') picEl = el.querySelector('picture');
-          if (picEl) {
-            const sources = picEl.querySelectorAll('source[srcset]');
-            for (const source of sources) {
-              const srcset = source.getAttribute('srcset') || '';
-              const parts = srcset.split(',');
-              for (const part of parts) {
-                const u = part.trim().split(/\s+/)[0];
-                if (u && /^https?:\/\//i.test(u)) { src = u; break; }
-              }
-              if (src) break;
-            }
-          }
+        if (titleEl) {
+          const pos = titleEl.compareDocumentPosition(el);
+          if (pos & Node.DOCUMENT_POSITION_PRECEDING) continue;
         }
-        if (!src || seen.has(src)) continue;
-        // Author photo/card = end of main article
-        if (/\/images\/author\//i.test(src) || this._isAuthorModule(el) || this._isAuthorModule(img)) {
+
+        if (endMarker) {
+          if (el === endMarker) break;
+          const pos = endMarker.compareDocumentPosition(el);
+          if (pos & Node.DOCUMENT_POSITION_FOLLOWING) break;
+        }
+
+        if (el.closest('nav, header, footer, aside, [class*="newsletter"], [class*="promo"], [class*="ad-slot"], [class*="ad-container"], [class*="in-article-ad"], [class*="-ad-"], [class*="advert"], [class*="sponsor"], [class*="most"], [class*="trending"], [class*="video"], [class*="widget"], [class*="paywall"], [class*="piano-metering"]')) continue;
+
+        if (this._isTerminalModule(el)) {
           if (hasBodyText) break;
           continue;
         }
-        // YouTube thumbnails
-        if (/ytimg\.com|youtube\.com/i.test(src)) continue;
-        if (this._isFilteredImage(src, img)) continue;
-        const imgKey = this._normalizeImgUrl(src);
-        if (seenImgKeys.has(imgKey)) continue;
-        seenImgKeys.add(imgKey);
-        if (img.closest('[class*="hero"], [class*="featured"], [class*="lead-image"], [class*="main-image"], [class*="top-image"]')) continue;
-        seen.add(src);
-        let caption = this._getImageCaption(el, img);
-        if (!caption) {
-          const alt = (img.getAttribute('alt') || '').trim();
-          if (alt && alt.length > 5 && alt.length < 300 && !/^(photo|image|graphic)/i.test(alt)) caption = alt;
+
+        if (this._isAuthorModule(el)) {
+          if (hasBodyText) break;
+          continue;
         }
-        paragraphs.push({ type: 'image', src, caption });
-        continue;
-      }
 
-      // Text
-      if (el.closest('figcaption')) continue;
-      const text = (el.innerText || '').replace(/\s+/g, ' ').trim();
+        const tagName = el.tagName.toLowerCase();
 
-      // Video title detection: skip <p> that follows a duration <p> in same parent
-      if (tagName === 'p' && _videoParent) {
-        if (el.parentElement === _videoParent) {
-          _videoParent = null;
+        if ((tagName === 'div' || tagName === 'section') && !this._isLeafTextBlock(el)) {
+          continue;
+        }
+
+        if (tagName === 'img' || tagName === 'figure' || tagName === 'picture') {
+          const img = tagName === 'img' ? el : el.querySelector('img');
+          if (!img) continue;
+          let src = this._resolveImageSrc(img);
+
+          if (!src) {
+            let picEl = tagName === 'picture' ? el : (el.closest ? el.closest('picture') : null);
+            if (!picEl && tagName === 'figure') picEl = el.querySelector('picture');
+            if (picEl) {
+              const sources = picEl.querySelectorAll('source[srcset]');
+              for (const source of sources) {
+                const srcset = source.getAttribute('srcset') || '';
+                const parts = srcset.split(',');
+                for (const part of parts) {
+                  const u = part.trim().split(/\s+/)[0];
+                  if (u && /^https?:\/\//i.test(u)) {
+                    src = u;
+                    break;
+                  }
+                }
+                if (src) break;
+              }
+            }
+          }
+
+          if (!src || seen.has(src)) continue;
+          if (/\/images\/author\//i.test(src) || this._isAuthorModule(el) || this._isAuthorModule(img)) {
+            if (hasBodyText) break;
+            continue;
+          }
+          if (/ytimg\.com|youtube\.com/i.test(src)) continue;
+          if (this._isFilteredImage(src, img)) continue;
+
+          const imgKey = this._normalizeImgUrl(src);
+          if (seenImgKeys.has(imgKey)) continue;
+          seenImgKeys.add(imgKey);
+
+          if (img.closest('[class*="hero"], [class*="featured"], [class*="lead-image"], [class*="main-image"], [class*="top-image"]')) continue;
+
+          seen.add(src);
+          let caption = this._getImageCaption(el, img);
+          if (!caption) {
+            const alt = (img.getAttribute('alt') || '').trim();
+            if (alt && alt.length > 5 && alt.length < 300 && !/^(photo|image|graphic)/i.test(alt)) {
+              caption = alt;
+            }
+          }
+          paragraphs.push({ type: 'image', src, caption });
+          continue;
+        }
+
+        if (el.closest('figcaption')) continue;
+        const text = (el.innerText || '').replace(/\s+/g, ' ').trim();
+
+        if (tagName === 'p' && videoParent) {
+          if (el.parentElement === videoParent) {
+            videoParent = null;
+            seen.add(text);
+            continue;
+          }
+          videoParent = null;
+        }
+
+        if (tagName === 'p' && /^\d{1,2}:\d{2}$/.test(text)) {
+          videoParent = el.parentElement;
+          continue;
+        }
+
+        if (text.length < 15) continue;
+        if (seen.has(text)) continue;
+        if (standfirst && text === standfirst) {
           seen.add(text);
           continue;
         }
-        _videoParent = null;
-      }
 
-      // Video duration → track parent so next <p> from same parent is also skipped
-      if (tagName === 'p' && /^\d{1,2}:\d{2}$/.test(text)) {
-        _videoParent = el.parentElement;
-        continue;
-      }
+        if (/^h[234]$/.test(tagName)) {
+          const link = el.querySelector('a[href*="/article/"]') || el.closest('a[href*="/article/"]');
+          if (link) continue;
+        }
 
-      if (text.length < 15) continue;
-      if (seen.has(text)) continue;
-      if (standfirst && text === standfirst) {
+        if (this._isBoilerplateText(text)) continue;
+
         seen.add(text);
-        continue;
+        hasBodyText = true;
+        paragraphs.push({
+          type: tagName.startsWith('h') ? 'heading' : 'text',
+          level: tagName.startsWith('h') ? parseInt(tagName[1]) : 0,
+          text
+        });
       }
 
-      // Skip headings linking to other articles (any position)
-      if (/^h[234]$/.test(tagName)) {
-        const link = el.querySelector('a[href*="/article/"]') || el.closest('a[href*="/article/"]');
-        if (link) continue;
-      }
+      return paragraphs;
+    };
 
-      if (this._isBoilerplateText(text)) continue;
+    const primary = collectFromRoot(primaryRoot, primaryRoot === container);
+    if (primary.length > 0) return primary;
 
-      seen.add(text);
-      hasBodyText = true;
-      paragraphs.push({
-        type: tagName.startsWith('h') ? 'heading' : 'text',
-        level: tagName.startsWith('h') ? parseInt(tagName[1]) : 0,
-        text
-      });
+    if (primaryRoot !== container) {
+      const fallback = collectFromRoot(container, true);
+      if (fallback.length > 0) return fallback;
     }
 
-    return paragraphs;
+    return [];
   }
 }
