@@ -292,6 +292,35 @@ class SCMPAdapter extends BaseAdapter {
     return /^(further reading|related topics|before you go|discover more stories on|select voice|make scmp preferred on google)/.test(text);
   }
 
+  _isInlineSkipModule(el) {
+    if (!el) return false;
+    if (el.closest('[class*="oembed"], [class*="methode-html-wrapper"]')) return true;
+
+    const inlineTopicPattern = /^(want to know more|read around this topic)/;
+    const ownText = (el.innerText || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    if (inlineTopicPattern.test(ownText)) return true;
+    if (ownText.length >= 80) return false;
+
+    let current = el.parentElement;
+    let depth = 0;
+    while (current && current !== document.body && depth < 3) {
+      if (current.tagName && /^(ARTICLE|MAIN|SECTION)$/i.test(current.tagName)) break;
+
+      const text = (current.innerText || '').replace(/\s+/g, ' ').trim().toLowerCase();
+      if (inlineTopicPattern.test(text)) {
+        const longTextBlocks = Array.from(current.querySelectorAll('p, h2, h3, h4'))
+          .filter(node => ((node.innerText || '').replace(/\s+/g, ' ').trim().length >= 80));
+        const mediaBlocks = current.querySelectorAll('figure, picture, img').length;
+        return text.length <= 600 && longTextBlocks.length <= 2 && mediaBlocks === 0;
+      }
+
+      current = current.parentElement;
+      depth++;
+    }
+
+    return false;
+  }
+
   _hasNestedContentChildren(el) {
     if (!el || !el.children || el.children.length === 0) return false;
 
@@ -327,15 +356,15 @@ class SCMPAdapter extends BaseAdapter {
     if (this._hasNestedContentChildren(el)) return false;
 
     const cls = `${el.className || ''} ${el.id || ''}`.toLowerCase();
-    if (/newsletter|promo|advert|sponsor|listen|audio|voice|toolbar|meta|time|date|caption/i.test(cls)) {
+    if (/newsletter|promo|advert|sponsor|listen|audio|voice|toolbar|meta|time|date|caption|oembed|methode-html-wrapper/i.test(cls)) {
       return false;
     }
 
-    return !/^(published:|updated:|2-min read|listen|follow\b|advertisement\b)/i.test(text);
+    return !/^(\{"@context"|published:|updated:|2-min read|listen|follow\b|advertisement\b)/i.test(text);
   }
 
   _isBoilerplateText(text) {
-    return /^(sign up|subscribe|newsletter|most popular|what to read next|further reading|related|related topics|recommended|keep reading|more stories|more from scmp|before you go|discover more stories on|make scmp preferred on google|select voice|listen\b)/i.test(text) ||
+    return /^(sign up|subscribe|newsletter|most popular|what to read next|further reading|related|related topics|want to know more|read around this topic|recommended|keep reading|more stories|more from scmp|before you go|discover more stories on|make scmp preferred on google|select voice|listen\b|\{"@context")/i.test(text) ||
       /^content provided by/i.test(text) ||
       /^copyright/i.test(text) ||
       /^\d+\s+(hours?|days?|minutes?)\s+ago$/i.test(text) ||
@@ -486,7 +515,9 @@ class SCMPAdapter extends BaseAdapter {
           if (pos & Node.DOCUMENT_POSITION_FOLLOWING) break;
         }
 
-        if (el.closest('nav, header, footer, aside, [class*="newsletter"], [class*="promo"], [class*="ad-slot"], [class*="ad-container"], [class*="in-article-ad"], [class*="-ad-"], [class*="advert"], [class*="sponsor"], [class*="most"], [class*="trending"], [class*="video"], [class*="widget"], [class*="paywall"], [class*="piano-metering"]')) continue;
+        if (el.closest('nav, header, footer, aside, [class*="newsletter"], [class*="promo"], [class*="ad-slot"], [class*="ad-container"], [class*="in-article-ad"], [class*="-ad-"], [class*="advert"], [class*="sponsor"], [class*="most"], [class*="trending"], [class*="video"], [class*="widget"], [class*="paywall"], [class*="piano-metering"], [class*="oembed"], [class*="methode-html-wrapper"]')) continue;
+
+        if (this._isInlineSkipModule(el)) continue;
 
         if (this._isTerminalModule(el)) {
           if (hasBodyText) break;

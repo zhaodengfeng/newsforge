@@ -126,6 +126,18 @@ class BloombergAdapter extends BaseAdapter {
     return texts.length >= 2;
   }
 
+  _isNonArticleChrome(el) {
+    if (!el) return false;
+    if (el.closest('[aria-hidden="true"], [hidden], [role="dialog"], dialog')) return true;
+    if (el.closest('.video-js, [class*="video-js"], [class*="vjs-"], [class*="VideoPlayer"], [class*="video-player"], [data-component*="video"]')) return true;
+
+    const cls = `${el.className || ''} ${el.id || ''}`.toLowerCase();
+    if (/vjs-|modal|dialog|video-js|videoplayer|video-player|playlist-player/.test(cls)) return true;
+
+    const text = (el.innerText || '').replace(/\s+/g, ' ').trim();
+    return /^(this is a modal window|beginning of dialog window|end of dialog window|close modal dialog)$/i.test(text);
+  }
+
   getParagraphs() {
     const paragraphs = [];
     const seen = new Set();
@@ -153,6 +165,7 @@ class BloombergAdapter extends BaseAdapter {
       }
 
       if (el.closest('nav, header, footer, aside, [class*="newsletter"], [class*="promo"], [class*="signup"], [class*="marketing"], [class*="ad-slot"], [class*="in-article-ad"]')) continue;
+      if (this._isNonArticleChrome(el)) continue;
       if (el.closest('dvz-ai2html-wrapper')) continue;
 
       if (this._isRelatedLinksTable(el)) {
@@ -231,6 +244,7 @@ class BloombergAdapter extends BaseAdapter {
         if (text2.length < 40) continue;
         if (seen.has(text2)) continue;
         if (el2.closest('nav, footer, aside')) continue;
+        if (this._isNonArticleChrome(el2)) continue;
         const t2Lower = text2.toLowerCase();
         if (/^(more from bloomberg|related|recommended|trending|you might|get alerts for)/.test(t2Lower)) break;
         seen.add(text2);

@@ -8,33 +8,98 @@ document.addEventListener('DOMContentLoaded', () => {
   const exportQualityField = document.getElementById('exportQualityField');
   const providerConfig = document.getElementById('providerConfig');
   const activeSummaryLine = document.getElementById('activeSummaryLine');
-  const statusProvider = document.getElementById('statusProvider');
-  const statusModel = document.getElementById('statusModel');
-  const statusEndpoint = document.getElementById('statusEndpoint');
-  const statusCredential = document.getElementById('statusCredential');
   const btnTestTranslate = document.getElementById('btnTestTranslate');
   const testInput = document.getElementById('testInput');
   const testResult = document.getElementById('testResult');
   const btnSave = document.getElementById('btnSave');
   const saveStatus = document.getElementById('saveStatus');
+  const saveStatusText = document.getElementById('saveStatusText');
   const btnClearHistory = document.getElementById('btnClearHistory');
+  const settingsTabs = Array.from(document.querySelectorAll('.settings-tab'));
+  const settingsPanels = Array.from(document.querySelectorAll('.settings-panel'));
 
   const TARGET_LANG_LABELS = {
-    'zh-CN': '简体中文',
-    'zh-TW': '繁體中文',
-    'ja': '日本語',
-    'ko': '한국어',
+    'zh-CN': 'Chinese (Simplified)',
+    'zh-TW': 'Chinese (Traditional)',
+    ja: 'Japanese',
+    ko: 'Korean',
     en: 'English',
-    fr: 'Français',
-    de: 'Deutsch',
-    es: 'Español',
-    ru: 'Русский',
-    pt: 'Português',
-    it: 'Italiano',
-    ar: 'العربية'
+    fr: 'French',
+    de: 'German',
+    es: 'Spanish',
+    ru: 'Russian',
+    pt: 'Portuguese',
+    it: 'Italian',
+    ar: 'Arabic'
   };
 
   let currentProvider = 'google';
+  let saveStatusTimer = null;
+
+  function showTopStatus(message = 'Saved') {
+    if (!saveStatus) return;
+    if (saveStatusText) saveStatusText.textContent = message;
+    saveStatus.classList.add('visible');
+    if (saveStatusTimer) clearTimeout(saveStatusTimer);
+    saveStatusTimer = setTimeout(() => saveStatus.classList.remove('visible'), 2500);
+  }
+
+  function activateSettingsTab(tabId, options = {}) {
+    const fallback = settingsTabs[0]?.dataset.tab || 'translation';
+    const nextTabId = settingsTabs.some((tab) => tab.dataset.tab === tabId) ? tabId : fallback;
+
+    settingsTabs.forEach((tab) => {
+      const isActive = tab.dataset.tab === nextTabId;
+      tab.classList.toggle('active', isActive);
+      tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+      tab.setAttribute('tabindex', isActive ? '0' : '-1');
+    });
+
+    settingsPanels.forEach((panel) => {
+      const isActive = panel.dataset.panel === nextTabId;
+      panel.classList.toggle('active', isActive);
+      panel.toggleAttribute('hidden', !isActive);
+    });
+
+    try {
+      localStorage.setItem('newsforgeOptionsActiveTab', nextTabId);
+    } catch (err) {
+      // Options should still work if localStorage is unavailable.
+    }
+
+    if (!options.restore) {
+      document.querySelector('.settings-main')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    }
+  }
+
+  settingsTabs.forEach((tab, index) => {
+    tab.addEventListener('click', () => activateSettingsTab(tab.dataset.tab));
+    tab.addEventListener('keydown', (event) => {
+      if (!['ArrowDown', 'ArrowRight', 'ArrowUp', 'ArrowLeft', 'Home', 'End'].includes(event.key)) return;
+
+      event.preventDefault();
+      let nextIndex = index;
+      if (event.key === 'Home') nextIndex = 0;
+      if (event.key === 'End') nextIndex = settingsTabs.length - 1;
+      if (event.key === 'ArrowDown' || event.key === 'ArrowRight') {
+        nextIndex = (index + 1) % settingsTabs.length;
+      }
+      if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') {
+        nextIndex = (index - 1 + settingsTabs.length) % settingsTabs.length;
+      }
+
+      const nextTab = settingsTabs[nextIndex];
+      nextTab.focus();
+      activateSettingsTab(nextTab.dataset.tab);
+    });
+  });
+
+  try {
+    activateSettingsTab(localStorage.getItem('newsforgeOptionsActiveTab') || 'translation', { restore: true });
+  } catch (err) {
+    activateSettingsTab('translation', { restore: true });
+  }
+  document.body.classList.remove('settings-booting');
 
   function updateExportQualityVisibility() {
     if (!exportImageFormatSelect || !exportQualityField) return;
@@ -248,26 +313,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
 
-    let endpointLabel = 'Built-in service';
-    if (info.type === 'deepl') {
-      endpointLabel = draft.endpoint;
-    } else if (info.type !== 'free') {
-      endpointLabel = draft.endpoint || 'Not set';
-      if (draft.usesCustomEndpoint) {
-        endpointLabel += ' (custom)';
-      }
-    }
-
-    let credentialLabel = 'Ready';
-    if (info.type !== 'free') {
-      credentialLabel = draft.apiKey ? 'API Key configured' : 'API Key required';
-    }
-
     activeSummaryLine.textContent = `Current: ${draft.providerName} / ${modelLabel} / ${draft.targetLangLabel}`;
-    statusProvider.textContent = draft.providerName;
-    statusModel.textContent = modelLabel;
-    statusEndpoint.textContent = endpointLabel;
-    statusCredential.textContent = credentialLabel;
   }
 
   function setTestResult(type, message) {
@@ -282,14 +328,17 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function loadAndRenderConfig(provider) {
-    chrome.storage.local.get(getStoredKeys(provider), (data) => {
-      renderProviderConfig(provider, {
-        apiKey: data[`${provider}_apiKey`] || '',
-        model: data[`${provider}_model`] || '',
-        endpoint: data[`${provider}_endpoint`] || '',
-        plan: data[`${provider}_plan`] || ''
+    return new Promise((resolve) => {
+      chrome.storage.local.get(getStoredKeys(provider), (data) => {
+        renderProviderConfig(provider, {
+          apiKey: data[`${provider}_apiKey`] || '',
+          model: data[`${provider}_model`] || '',
+          endpoint: data[`${provider}_endpoint`] || '',
+          plan: data[`${provider}_plan`] || ''
+        });
+        renderSummaryStatus();
+        resolve();
       });
-      renderSummaryStatus();
     });
   }
 
@@ -384,8 +433,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     chrome.storage.local.set(toSet, () => {
-      saveStatus.classList.add('visible');
-      setTimeout(() => saveStatus.classList.remove('visible'), 2500);
+      showTopStatus('Saved');
       renderSummaryStatus();
     });
   });
@@ -401,7 +449,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  chrome.storage.local.get(['translationProvider', 'targetLang', 'readerTheme', 'exportImageFormat', 'exportQuality'], (baseSettings) => {
+  function applyBaseSettings(baseSettings) {
     currentProvider = baseSettings.translationProvider || 'google';
     if (!PROVIDERS[currentProvider]) currentProvider = 'google';
 
@@ -411,8 +459,20 @@ document.addEventListener('DOMContentLoaded', () => {
     if (exportImageFormatSelect) exportImageFormatSelect.value = baseSettings.exportImageFormat || 'jpeg';
     if (exportQualitySelect) exportQualitySelect.value = baseSettings.exportQuality || 'balanced';
     updateExportQualityVisibility();
-    loadAndRenderConfig(currentProvider);
-  });
+    return loadAndRenderConfig(currentProvider);
+  }
+
+  function refreshSettingsFromStorage() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(['translationProvider', 'targetLang', 'readerTheme', 'exportImageFormat', 'exportQuality'], (baseSettings) => {
+        applyBaseSettings(baseSettings || {}).then(() => {
+          resolve(baseSettings || {});
+        });
+      });
+    });
+  }
+
+  refreshSettingsFromStorage();
 
   exportImageFormatSelect?.addEventListener('change', updateExportQualityVisibility);
 
@@ -724,16 +784,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // Restore data
       await restoreBackupData(data);
+      await refreshSettingsFromStorage();
 
       _pendingImportFile = null;
       hideBackupModal();
       btn.textContent = 'Imported!';
+      btn.disabled = false;
+      confirmBtn.disabled = false;
+      confirmText.textContent = origConfirm;
+      showTopStatus('Settings imported');
       setTimeout(() => {
         btn.textContent = orig;
-        btn.disabled = false;
-        // Refresh the page to reflect restored settings
-        window.location.reload();
-      }, 1500);
+      }, 3000);
     } catch (err) {
       console.error('[NewsForge] import error:', err);
       btn.textContent = 'Import failed';
