@@ -289,7 +289,7 @@ class SCMPAdapter extends BaseAdapter {
       return true;
     }
 
-    return /^(related topics|before you go|discover more stories on|select voice|make scmp preferred on google)/.test(text);
+    return /^(further reading|related topics|before you go|discover more stories on|select voice|make scmp preferred on google)/.test(text);
   }
 
   _hasNestedContentChildren(el) {
@@ -335,7 +335,7 @@ class SCMPAdapter extends BaseAdapter {
   }
 
   _isBoilerplateText(text) {
-    return /^(sign up|subscribe|newsletter|most popular|what to read next|related|related topics|recommended|keep reading|more stories|more from scmp|before you go|discover more stories on|make scmp preferred on google|select voice|listen\b)/i.test(text) ||
+    return /^(sign up|subscribe|newsletter|most popular|what to read next|further reading|related|related topics|recommended|keep reading|more stories|more from scmp|before you go|discover more stories on|make scmp preferred on google|select voice|listen\b)/i.test(text) ||
       /^content provided by/i.test(text) ||
       /^copyright/i.test(text) ||
       /^\d+\s+(hours?|days?|minutes?)\s+ago$/i.test(text) ||
@@ -431,7 +431,8 @@ class SCMPAdapter extends BaseAdapter {
     const container = this.getContentContainer();
     if (!container) return [];
     const titleEl = this._getActiveTitleElement();
-    const primaryRoot = (isPlusPage && titleEl && container.contains(titleEl))
+    const isArticleContainer = container.tagName && container.tagName.toUpperCase() === 'ARTICLE';
+    const primaryRoot = ((isPlusPage || (!isPlusPage && isArticleContainer)) && titleEl && container.contains(titleEl))
       ? container
       : (this._getBodyRoot(container, true) || this._getBodyRoot(container, false) || container);
 
@@ -478,6 +479,11 @@ class SCMPAdapter extends BaseAdapter {
         const tagName = el.tagName.toLowerCase();
 
         if ((tagName === 'div' || tagName === 'section') && !this._isLeafTextBlock(el)) {
+          continue;
+        }
+
+        if ((tagName === 'div' || tagName === 'section') &&
+            (el.closest('a[href*="/article/"]') || el.querySelector('a[href*="/article/"]'))) {
           continue;
         }
 

@@ -568,7 +568,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ---- Modal UI ----
   let _modalMode = null; // 'export' | 'import'
-  let _pendingImportPassword = ''; // stored in closure, not DOM
+  let _pendingImportFile = null; // stored in closure so password is collected after file selection
 
   function showBackupModal(mode) {
     _modalMode = mode;
@@ -594,7 +594,8 @@ document.addEventListener('DOMContentLoaded', () => {
       confirmText.textContent = 'Export .nfbackup';
     } else {
       title.textContent = 'Import Encrypted Backup';
-      desc.textContent = 'Select your .nfbackup file and enter the password used during export.';
+      const fileName = _pendingImportFile ? _pendingImportFile.name : '.nfbackup file';
+      desc.textContent = `Selected ${fileName}. Enter the password used during export.`;
       confirmField.style.display = 'none';
       confirmText.textContent = 'Import';
     }
@@ -606,6 +607,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function hideBackupModal() {
     document.getElementById('backupModal').style.display = 'none';
     _modalMode = null;
+    _pendingImportFile = null;
   }
 
   document.getElementById('backupModalCancelBtn').addEventListener('click', hideBackupModal);
@@ -655,9 +657,14 @@ document.addEventListener('DOMContentLoaded', () => {
         errorEl.style.display = 'block';
         return;
       }
-      // Trigger file picker
-      _pendingImportPassword = password;
-      document.getElementById('importFileInput').click();
+      if (!_pendingImportFile) {
+        errorEl.textContent = 'Please select a backup file first.';
+        errorEl.style.display = 'block';
+        return;
+      }
+
+      const file = _pendingImportFile;
+      await doImportBackup(file, password);
     }
   });
 
@@ -694,19 +701,18 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ---- Import ----
-  document.getElementById('importFileInput').addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    e.target.value = ''; // reset so same file can be re-selected
-
-    const password = _pendingImportPassword;
-    _pendingImportPassword = ''; // clear from memory ASAP
-
+  async function doImportBackup(file, password) {
     const btn = document.getElementById('btnImportBackup');
+    const confirmBtn = document.getElementById('backupModalConfirmBtn');
+    const confirmText = document.getElementById('backupModalConfirmText');
+    const pwInput = document.getElementById('backupModalPassword');
     const orig = btn.textContent;
+    const origConfirm = confirmText.textContent;
     btn.textContent = 'Decrypting...';
     btn.disabled = true;
-    const errorEl = document.getElementById('backupModalError');
+    confirmBtn.disabled = true;
+    confirmText.textContent = 'Decrypting...';
+    pwInput.value = ''; // clear from DOM before async decrypt work
 
     try {
       const text = await file.text();
@@ -719,6 +725,8 @@ document.addEventListener('DOMContentLoaded', () => {
       // Restore data
       await restoreBackupData(data);
 
+      _pendingImportFile = null;
+      hideBackupModal();
       btn.textContent = 'Imported!';
       setTimeout(() => {
         btn.textContent = orig;
@@ -730,16 +738,28 @@ document.addEventListener('DOMContentLoaded', () => {
       console.error('[NewsForge] import error:', err);
       btn.textContent = 'Import failed';
       btn.disabled = false;
+      confirmBtn.disabled = false;
+      confirmText.textContent = origConfirm;
       // Show error in the modal if still visible, otherwise alert
       if (document.getElementById('backupModal').style.display !== 'none') {
         const errEl = document.getElementById('backupModalError');
         errEl.textContent = err.message || 'Invalid password or corrupted file.';
         errEl.style.display = 'block';
+        pwInput.focus();
       } else {
         alert(err.message || 'Import failed: invalid password or corrupted file.');
       }
       setTimeout(() => { btn.textContent = orig; }, 3000);
     }
+  }
+
+  document.getElementById('importFileInput').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    e.target.value = ''; // reset so same file can be re-selected
+    if (!file) return;
+
+    _pendingImportFile = file;
+    showBackupModal('import');
   });
 
   // ---- Button wiring ----
@@ -748,7 +768,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   document.getElementById('btnImportBackup').addEventListener('click', () => {
-    showBackupModal('import');
+    document.getElementById('importFileInput').click();
   });
 
   // Close modal on backdrop click
