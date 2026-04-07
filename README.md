@@ -9,7 +9,7 @@ NewsForge is a Chrome extension for clean article reading, inline translation, a
 - Opens a distraction-free reader view on supported news sites
 - Translates article content with free or API-based translation providers
 - Supports screenshots and PDF export from reader mode
-- Keeps settings and reading history locally in the browser
+- Keeps settings, reading history, and encrypted backups locally in the browser
 
 ## Supported Sites
 
@@ -24,10 +24,12 @@ NewsForge is a Chrome extension for clean article reading, inline translation, a
 ## Highlights
 
 - Clean reader mode with article-first layout
+- `NewsForge` and `Classic` reader styles
 - Progressive translation rendering inside the reader
-- Screenshot export for translated or original content
+- Screenshot export for translated or original content with `JPEG`, `PNG`, and `WebP` options
 - PDF export with better long-article pagination
 - Local reading history
+- Encrypted settings backup and restore
 - Built-in settings diagnostics and test translation
 
 ## Translation Providers
@@ -63,14 +65,21 @@ The settings page is organized around the current workflow:
   Only show the fields required for the current provider
 - `Status & Diagnostics`
   Review the active config and run a test translation
+- `Reading Style`
+  Choose `NewsForge` or `Classic` reader styling
+- `Export Settings`
+  Choose screenshot format and export quality
 - `Data & Maintenance`
-  Clear local reading history
+  Clear local reading history and manage encrypted backups
 
 Additional behavior:
 
 - Preset model dropdown plus optional custom model input
 - `DeepL Free / Pro` switch without manually typing the endpoint
 - `Advanced Settings` for endpoint overrides
+- `JPEG` is the default screenshot format for broad app compatibility
+- `Balanced` is the default export quality
+- `PNG` export hides the quality selector because PNG is lossless
 - More readable translation error messages
 
 ## Install
@@ -83,12 +92,12 @@ Install from the Chrome Web Store:
 
 ### Manual install
 
-1. Download the latest `newsforge-v26.4.3.zip` from the GitHub release page.
+1. Download the latest `newsforge-v26.4.10.zip` from the GitHub release page.
 2. Unzip the package.
 3. Open `chrome://extensions`.
 4. Enable `Developer mode`.
 5. Click `Load unpacked`.
-6. Select the unzipped `newsforge-v26.4.3` folder.
+6. Select the unzipped `newsforge-v26.4.10` folder.
 
 ## Development
 
@@ -125,7 +134,7 @@ To work locally:
 
 1. Make changes under `src/`.
 2. Load the `src` folder as an unpacked extension during development.
-3. For release packaging, zip the built extension folder as `newsforge-v26.4.3.zip`.
+3. For release packaging, zip the built extension folder as `newsforge-v26.4.10.zip`.
 
 ## Privacy
 
@@ -133,6 +142,7 @@ NewsForge does not send data to our own servers.
 
 - Settings are stored locally with `chrome.storage.local`
 - Reading history is stored locally
+- Backup files are encrypted before export and do not include reading history by default
 - Translation requests go directly from the browser to the selected provider
 
 See the full policy in `PRIVACY.md`.
