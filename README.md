@@ -30,7 +30,10 @@ NewsForge is a Chrome extension for clean article reading, inline translation, a
 - PDF export with better long-article pagination
 - Local reading history
 - Encrypted settings backup and restore
-- Built-in settings diagnostics and test translation
+- Task-focused settings tabs with provider config, reader export, and data maintenance separated
+- Built-in test translation for the active on-screen provider settings
+- Cleaner SCMP and Bloomberg article extraction for inline modules and embedded video UI text
+- LLM translation batching tuned for faster first results and better name consistency
 
 ## Translation Providers
 
@@ -57,30 +60,39 @@ NewsForge is a Chrome extension for clean article reading, inline translation, a
 
 ## Settings Experience
 
-The settings page is organized around the current workflow:
+The settings page is organized into three task-focused tabs:
 
-- `Quick Setup`
-  Select provider and target language
-- `Engine Config`
-  Only show the fields required for the current provider
-- `Status & Diagnostics`
-  Review the active config and run a test translation
-- `Reading Style`
-  Choose `NewsForge` or `Classic` reader styling
-- `Export Settings`
-  Choose screenshot format and export quality
-- `Data & Maintenance`
-  Clear local reading history and manage encrypted backups
+- `Translation`
+  Select provider and target language, configure the current provider, and run a test translation in one place
+- `Reader & Export`
+  Choose `NewsForge` or `Classic` reader styling, screenshot format, and export quality
+- `Data`
+  Manage encrypted backups and clear local reading history
 
 Additional behavior:
 
 - Preset model dropdown plus optional custom model input
 - `DeepL Free / Pro` switch without manually typing the endpoint
 - `Advanced Settings` for endpoint overrides
+- Settings changes are explicit: click `Save Settings` after editing
+- Backup import starts with file selection, then asks for the backup password
+- Successful backup import updates the settings page in place without a full page reload
 - `JPEG` is the default screenshot format for broad app compatibility
 - `Balanced` is the default export quality
 - `PNG` export hides the quality selector because PNG is lossless
 - More readable translation error messages
+
+## Recent Updates
+
+### v26.4.10
+
+- Improved SCMP extraction so inline topic prompts and video embeds are skipped without cutting off following article paragraphs
+- Filtered hidden Bloomberg Video.js modal and caption-settings text from reader mode
+- Reworked settings into `Translation`, `Reader & Export`, and `Data` tabs
+- Removed the low-value `Status & Diagnostics` block while keeping test translation in the translation workflow
+- Switched the settings active tab and primary action styling to the page accent color
+- Improved backup import by selecting the file before password entry, updating the page without reload, and showing a success confirmation
+- Tuned LLM translation chunking to show first results sooner while preserving full-article terminology hints
 
 ## Install
 
