@@ -156,7 +156,7 @@ function buildPromptContext(context = {}) {
     ['source', 80],
     ['title', 240],
     ['summary', 360],
-    ['terms', 300]
+    ['terms', 2200]
   ];
 
   for (const [key, maxLen] of entries) {
@@ -192,7 +192,7 @@ function buildContextBlock(context) {
   if (context.source) lines.push(`Source: ${context.source}`);
   if (context.title) lines.push(`Title: ${context.title}`);
   if (context.summary) lines.push(`Standfirst: ${context.summary}`);
-  if (context.terms) lines.push(`Terms: ${context.terms}`);
+  if (context.terms) lines.push(`Full-article terminology hints:\n${context.terms}`);
   return lines.length ? `Context:\n${lines.join('\n')}` : '';
 }
 
@@ -206,12 +206,16 @@ function buildNewsTranslationPrompt({ provider, model, langName, contentType, co
 
   if (isMTModel) {
     const systemPrompt = isHeadline
-      ? `Translate the input news headline into ${langName}. Return only a JSON array of translated strings.`
-      : `Translate the input news ${contentLabel} into ${langName}. Return only a JSON array of translated strings in the same order as the input array.`;
+      ? `Translate the input news headline into ${langName}. Use the full-article terminology hints to resolve and keep named entities consistent. Return only a JSON array of translated strings.`
+      : `Translate the input news ${contentLabel} into ${langName}. Use the full-article terminology hints to resolve and keep named entities consistent. Return only a JSON array of translated strings in the same order as the input array.`;
 
     const userPrompt = [
       contextBlock,
       'Use the context only to resolve ambiguity. Do not translate the instructions.',
+      'For every person, organization, and place name, choose one target-language form and reuse it consistently across this article.',
+      'For romanized Chinese, Hong Kong, Taiwanese, or other Chinese-origin personal names, infer the most appropriate Chinese-script form from the full article context and known news usage when possible.',
+      'If a segment only has a surname or partial name, resolve it against the full-name hints first. For example, if Cheng is linked to a full name, translate Cheng using that person’s chosen Chinese surname; do not alternate between 程/郑/成 or add 女士/先生 unless present in the source.',
+      'Keep the romanized form only as a last resort when context gives no reasonable basis for a Chinese-script rendering.',
       'Input JSON array:',
       JSON.stringify(texts)
     ].filter(Boolean).join('\n\n');
@@ -226,8 +230,11 @@ Rules:
 1. Produce a concise, natural, publication-ready news headline.
 2. Preserve the original meaning, tone, and news angle.
 3. Keep names, numbers, dates, and factual claims accurate.
-4. Use any provided context only to resolve ambiguity.
-5. Return only valid JSON.
+4. Use one consistent target-language form for every person, organization, and place name across the article.
+5. For romanized Chinese, Hong Kong, Taiwanese, or other Chinese-origin personal names, infer the most appropriate Chinese-script form from the article context and known news usage when possible.
+6. Resolve surname-only or partial-name mentions against the full-name terminology hints.
+7. Keep the romanized form only as a last resort when context gives no reasonable basis for a Chinese-script rendering.
+8. Return only valid JSON.
 
 Output format:
 {"translations":[{"id":0,"text":"..."}]}`
@@ -240,10 +247,16 @@ Rules:
 2. Preserve facts, numbers, dates, and attributions exactly.
 3. Keep the journalistic tone, register, and structure appropriate for news writing.
 4. Use the established target-language form for people, organizations, and places when one clearly exists; otherwise preserve the original term.
-5. Translate quotes faithfully without adding interpretation.
-6. Keep section headings concise and news-style.
-7. Use any provided context only to disambiguate meaning; do not introduce information not present in the segment itself.
-8. Return translations in the same order as the input.
+5. Maintain one consistent target-language rendering for every named entity across all chunks of this article. Do not alternate between variants.
+6. For romanized Chinese, Hong Kong, Taiwanese, or other Chinese-origin personal names, infer the most appropriate Chinese-script form from the full article context and known news usage when possible. Do not default to English if the news context supports a Chinese rendering.
+7. Resolve surname-only or partial-name mentions against the full-name terminology hints. If the article links "Cheng" to one full name, translate every "Cheng" mention using that same chosen Chinese surname.
+8. Keep the romanized form only as a last resort when context gives no reasonable basis for a Chinese-script rendering.
+9. Never alternate between different Chinese characters for the same romanized person name in one article, such as 程/郑/成 or different given names.
+10. Do not add honorifics such as Ms., Mr., 女士, or 先生 unless they are present in the source text.
+11. Translate quotes faithfully without adding interpretation.
+12. Keep section headings concise and news-style.
+13. Use any provided context only to disambiguate meaning; do not introduce information not present in the segment itself.
+14. Return translations in the same order as the input.
 
 Output format:
 {"translations":[{"id":0,"text":"..."},{"id":1,"text":"..."}]}`;

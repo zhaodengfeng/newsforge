@@ -52,6 +52,25 @@ const EXPORT_QUALITY_PRESETS = {
   small: { screenshotQuality: 0.82, pdfQuality: 0.78 },
 };
 
+const PROMPT_AWARE_TRANSLATION_PROVIDERS = new Set([
+  'openai',
+  'deepseek',
+  'qwen',
+  'gemini',
+  'glm',
+  'kimi',
+  'openrouter',
+  'claude',
+  'custom_openai',
+  'custom_claude',
+]);
+
+const FALLBACK_TRANSLATION_CHUNK_SIZE = 3;
+const LLM_FIRST_CHUNK_ITEMS = 3;
+const LLM_FIRST_CHUNK_CHARS = 2200;
+const LLM_MAX_CHUNK_ITEMS = 5;
+const LLM_MAX_CHUNK_CHARS = 4200;
+
 const ReaderRenderer = {
   active: false,
   article: null,
@@ -288,8 +307,163 @@ const ReaderRenderer = {
     return {
       source: this.article?.source || '',
       title: this.article?.title || '',
-      summary: this.article?.standfirst || ''
+      summary: this.article?.standfirst || '',
+      terms: this.buildTranslationTerms()
     };
+  },
+
+  buildTranslationTerms() {
+    const article = this.article || {};
+    const pieces = [
+      article.title || '',
+      article.standfirst || '',
+      ...(Array.isArray(article.paragraphs)
+        ? article.paragraphs
+            .filter(p => p && p.type !== 'image' && p.text)
+            .map(p => p.text)
+        : [])
+    ];
+    const fullText = pieces.join('\n').replace(/\s+/g, ' ').trim();
+    if (!fullText) return '';
+
+    const generic = new Set([
+      'South China Morning Post', 'Hong Kong', 'Mainland China', 'United States',
+      'US', 'UK', 'China', 'Chinese', 'Beijing', 'Taiwan', 'Asia', 'Europe',
+      'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday',
+      'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August',
+      'September', 'October', 'November', 'December'
+    ]);
+    const seen = new Set();
+    const terms = [];
+    const namePattern = /\b(?:[A-Z][a-z]+|[A-Z]{2,})(?:[-'][A-Za-z]+)?(?:\s+(?:[A-Z][a-z]+|[A-Z]{2,})(?:[-'][A-Za-z]+)?){1,3}\b/g;
+    let match;
+
+    while ((match = namePattern.exec(fullText)) && terms.length < 36) {
+      const term = match[0].replace(/\s+/g, ' ').trim();
+      if (term.length < 4 || term.length > 80) continue;
+      if (generic.has(term)) continue;
+      if (/^(The|This|That|These|Those|After|Before|During|For|With|From|About|Against|According)\b/.test(term)) continue;
+      const key = term.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      terms.push(term);
+    }
+
+    const aliases = [];
+    for (const term of terms) {
+      const parts = term.split(/\s+/).filter(Boolean);
+      if (parts.length < 2) continue;
+      const first = parts[0].replace(/[^A-Za-z'-]/g, '');
+      const last = parts[parts.length - 1].replace(/[^A-Za-z'-]/g, '');
+      if (first && first.length > 2) aliases.push(`${first} => ${term}`);
+      if (last && last.length > 2 && last.toLowerCase() !== first.toLowerCase()) aliases.push(`${last} => ${term}`);
+    }
+
+    return [
+      terms.length ? `Full-name candidates for entity consistency: ${terms.join('; ')}` : '',
+      aliases.length ? `Alias/coreference hints, not translations: ${aliases.slice(0, 32).join('; ')}` : ''
+    ].filter(Boolean).join('\n').slice(0, 2200);
+  },
+
+  isPromptAwareTranslationProvider(provider) {
+    return PROMPT_AWARE_TRANSLATION_PROVIDERS.has(provider);
+  },
+
+  buildTranslationChunks(texts, provider) {
+    const safeTexts = texts.map(text => String(text || ''));
+    const promptAware = this.isPromptAwareTranslationProvider(provider);
+
+    if (!promptAware) {
+      const chunks = [];
+      for (let i = 0; i < safeTexts.length; i += FALLBACK_TRANSLATION_CHUNK_SIZE) {
+        chunks.push({ start: i, end: Math.min(i + FALLBACK_TRANSLATION_CHUNK_SIZE, safeTexts.length) });
+      }
+      return chunks;
+    }
+
+    const chunks = [];
+    let start = 0;
+    let chunkIndex = 0;
+    while (start < safeTexts.length) {
+      let end = start;
+      let chars = 0;
+      const maxItems = chunkIndex === 0 ? LLM_FIRST_CHUNK_ITEMS : LLM_MAX_CHUNK_ITEMS;
+      const maxChars = chunkIndex === 0 ? LLM_FIRST_CHUNK_CHARS : LLM_MAX_CHUNK_CHARS;
+
+      while (end < safeTexts.length && end - start < maxItems) {
+        const nextLen = safeTexts[end].length;
+        if (end > start && chars + nextLen > maxChars) break;
+        chars += nextLen;
+        end++;
+      }
+
+      if (end === start) end++;
+      chunks.push({ start, end });
+      start = end;
+      chunkIndex++;
+    }
+
+    return chunks;
+  },
+
+  hasIncompleteTranslations(texts, translations) {
+    if (!Array.isArray(translations) || translations.length < texts.length) return true;
+    return texts.some((text, idx) => String(text || '').trim() && !String(translations[idx] || '').trim());
+  },
+
+  async requestTranslationsWithFallback({ texts, targetLang, contentType, context, provider, isStale }) {
+    const response = await chrome.runtime.sendMessage({
+      type: 'translate',
+      data: {
+        texts,
+        from: 'en',
+        to: targetLang,
+        contentType,
+        context
+      }
+    });
+
+    if (isStale()) return null;
+    if (response?.error) throw new Error(response.error);
+
+    const translations = Array.isArray(response?.translations) ? response.translations : [];
+    if (!this.hasIncompleteTranslations(texts, translations)) {
+      return translations.slice(0, texts.length);
+    }
+
+    if (this.isPromptAwareTranslationProvider(provider) && texts.length > 1) {
+      const mid = Math.ceil(texts.length / 2);
+      const left = await this.requestTranslationsWithFallback({
+        texts: texts.slice(0, mid),
+        targetLang,
+        contentType,
+        context,
+        provider,
+        isStale
+      });
+      if (isStale() || !left) return null;
+
+      const right = await this.requestTranslationsWithFallback({
+        texts: texts.slice(mid),
+        targetLang,
+        contentType,
+        context,
+        provider,
+        isStale
+      });
+      if (isStale() || !right) return null;
+      return [...left, ...right];
+    }
+
+    if (!translations.length) {
+      throw new Error('Translation returned empty response');
+    }
+
+    if (this.isPromptAwareTranslationProvider(provider)) {
+      throw new Error('Translation returned incomplete response');
+    }
+
+    return texts.map((_, idx) => translations[idx] || '');
   },
 
   _normalizeTranslationCompareText(text = '') {
@@ -382,13 +556,16 @@ const ReaderRenderer = {
 
     try {
       const settings = await new Promise(resolve =>
-        chrome.storage.local.get('targetLang', resolve)
+        chrome.storage.local.get(['targetLang', 'translationProvider'], resolve)
       );
       this._targetLang = settings.targetLang || 'zh-CN';
+      this._translationProvider = settings.translationProvider || 'google';
     } catch (e) {
       this._targetLang = 'zh-CN';
+      this._translationProvider = 'google';
     }
     const targetLang = this._targetLang;
+    const translationProvider = this._translationProvider;
 
     const bodyElements = [];
     overlay.querySelectorAll('.nf-standfirst[data-original], .nf-heading[data-original], .nf-paragraph[data-original]')
@@ -437,51 +614,44 @@ const ReaderRenderer = {
     try {
       if (titleEl?.dataset.original) {
         btn.querySelector('span').textContent = `Translating 1/${total}...`;
-        const response = await chrome.runtime.sendMessage({
-          type: 'translate',
-          data: {
-            texts: [titleEl.dataset.original],
-            from: 'en',
-            to: targetLang,
-            contentType: 'headline',
-            context: translationContext
-          }
+        const translations = await this.requestTranslationsWithFallback({
+          texts: [titleEl.dataset.original],
+          targetLang,
+          contentType: 'headline',
+          context: translationContext,
+          provider: translationProvider,
+          isStale
         });
         if (isStale()) return;
-        if (response?.error) throw new Error(response.error);
-        if (response?.translations?.[0]) {
-          applyTranslation(titleEl, response.translations[0]);
+        if (translations?.[0]) {
+          applyTranslation(titleEl, translations[0]);
         }
         updateProgress();
       }
 
-      const chunkSize = 3;
       const bodyTexts = bodyElements.map(el => el.dataset.original);
+      const chunks = this.buildTranslationChunks(bodyTexts, translationProvider);
 
-      for (let i = 0; i < bodyElements.length; i += chunkSize) {
-        const chunkTexts = bodyTexts.slice(i, i + chunkSize);
-        const chunkEls = bodyElements.slice(i, i + chunkSize);
+      for (const chunk of chunks) {
+        const chunkTexts = bodyTexts.slice(chunk.start, chunk.end);
+        const chunkEls = bodyElements.slice(chunk.start, chunk.end);
 
-        const response = await chrome.runtime.sendMessage({
-          type: 'translate',
-          data: {
-            texts: chunkTexts,
-            from: 'en',
-            to: targetLang,
-            contentType: 'body',
-            context: translationContext
-          }
+        const translations = await this.requestTranslationsWithFallback({
+          texts: chunkTexts,
+          targetLang,
+          contentType: 'body',
+          context: translationContext,
+          provider: translationProvider,
+          isStale
         });
 
         if (isStale()) return;
-        if (response?.error) throw new Error(response.error);
+        if (!translations) return;
 
-        if (response?.translations) {
-          response.translations.forEach((translation, idx) => {
-            applyTranslation(chunkEls[idx], translation);
-            updateProgress();
-          });
-        }
+        chunkEls.forEach((el, idx) => {
+          applyTranslation(el, translations[idx]);
+          updateProgress();
+        });
       }
 
       if (isStale()) return;

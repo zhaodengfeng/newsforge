@@ -374,6 +374,16 @@ class SCMPAdapter extends BaseAdapter {
   _getBodyRoot(container, visibleOnly = true) {
     if (!container) return null;
 
+    const countContentBlocks = (el) => {
+      if (!el) return 0;
+      const pCount = el.querySelectorAll('p').length;
+      const leafDivCount = Array.from(el.querySelectorAll('div')).filter(child => {
+        if (visibleOnly && !this._isElementVisible(child)) return false;
+        return this._isLeafTextBlock(child);
+      }).length;
+      return pCount + leafDivCount;
+    };
+
     const pickBest = (selector, tagBonus = 0) => {
       let best = null;
       const nodes = container.querySelectorAll(selector);
@@ -409,7 +419,21 @@ class SCMPAdapter extends BaseAdapter {
       return best?.el || null;
     };
 
-    return pickBest('section', 800) || pickBest('div', 0);
+    const bestSection = pickBest('section', 800);
+    const bestDiv = pickBest('div', 0);
+
+    if (bestDiv && bestSection && bestDiv.contains(bestSection)) {
+      const divTextLen = (bestDiv.innerText || '').replace(/\s+/g, ' ').trim().length;
+      const sectionTextLen = (bestSection.innerText || '').replace(/\s+/g, ' ').trim().length;
+      const divBlockCount = countContentBlocks(bestDiv);
+      const sectionBlockCount = countContentBlocks(bestSection);
+
+      if (divBlockCount > sectionBlockCount && divTextLen > sectionTextLen * 1.2) {
+        return bestDiv;
+      }
+    }
+
+    return bestSection || bestDiv;
   }
 
   // Normalize SCMP image URLs for deduplication
@@ -431,10 +455,8 @@ class SCMPAdapter extends BaseAdapter {
     const container = this.getContentContainer();
     if (!container) return [];
     const titleEl = this._getActiveTitleElement();
-    const isArticleContainer = container.tagName && container.tagName.toUpperCase() === 'ARTICLE';
-    const primaryRoot = ((isPlusPage || (!isPlusPage && isArticleContainer)) && titleEl && container.contains(titleEl))
-      ? container
-      : (this._getBodyRoot(container, true) || this._getBodyRoot(container, false) || container);
+    const bodyRoot = this._getBodyRoot(container, true) || this._getBodyRoot(container, false);
+    const primaryRoot = bodyRoot || container;
 
     const collectFromRoot = (root, useEndMarker = false) => {
       const paragraphs = [];
@@ -482,8 +504,7 @@ class SCMPAdapter extends BaseAdapter {
           continue;
         }
 
-        if ((tagName === 'div' || tagName === 'section') &&
-            (el.closest('a[href*="/article/"]') || el.querySelector('a[href*="/article/"]'))) {
+        if ((tagName === 'div' || tagName === 'section') && el.closest('a[href*="/article/"]')) {
           continue;
         }
 
