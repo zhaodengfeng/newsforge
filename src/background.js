@@ -13,6 +13,8 @@ chrome.runtime.onInstalled.addListener(() => {
   const defaults = {
     translationProvider: 'google',
     targetLang: 'zh-CN',
+    exportImageFormat: 'jpeg',
+    exportQuality: 'balanced',
   };
   chrome.storage.local.get(Object.keys(defaults), (existing) => {
     const toSet = {};
@@ -452,7 +454,7 @@ function parseLLMTranslations(rawContent, texts) {
 
   if (!Array.isArray(translations)) translations = [normalizeTranslationItem(translations)];
   while (translations.length < texts.length) translations.push('');
-  return translations.slice(0, Math.max(texts.length, translations.length));
+  return translations.slice(0, texts.length);
 }
 
 // ============================================
@@ -461,75 +463,20 @@ function parseLLMTranslations(rawContent, texts) {
 async function googleTranslate(texts, targetLang) {
   const lang = targetLang === 'zh-TW' ? 'zh-TW' : targetLang === 'zh-CN' ? 'zh-CN' : targetLang;
 
-  // Batch: send all texts as multiple q params in one request
-  const params = new URLSearchParams();
-  params.append('client', 'gtx');
-  params.append('sl', 'auto');
-  params.append('tl', lang);
-  params.append('dt', 't');
-  texts.forEach(t => params.append('q', t));
-
-  const url = `https://translate.googleapis.com/translate_a/single?${params.toString()}`;
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`Google Translate error: ${response.status}`);
-  const data = await response.json();
-
-  // When batching, data[0] contains translation segments for all texts sequentially
-  // Each text's segments end when the source text matches the next input
+  // Use sequential requests — Google batch response format is unreliable for multi-text
   const translations = [];
-  if (texts.length === 1) {
-    // Single text: simple extraction
+  for (const text of texts) {
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${lang}&dt=t&q=${encodeURIComponent(text)}`;
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`Google Translate error: ${resp.status}`);
+    const data = await resp.json();
     let result = '';
     if (data && data[0]) {
       for (const part of data[0]) {
         if (part && part[0]) result += part[0];
       }
     }
-    translations.push(result || texts[0]);
-  } else {
-    // Multiple texts: each q returns its own set of segments
-    // Google batches them all into data[0], separated by null entries
-    // Fallback to sequential if batch parsing fails
-    try {
-      let result = '';
-      let idx = 0;
-      if (data && data[0]) {
-        for (const part of data[0]) {
-          if (part && part[0]) {
-            result += part[0];
-          }
-          // Check if this segment's source text ends the current input text
-          if (part && part[1] && result) {
-            // Heuristic: when the accumulated source matches the end of current text, emit
-            const srcAccum = part[1];
-            if (srcAccum && srcAccum.endsWith('\n') || !part[1]) {
-              // Not reliable enough — fall through to sequential
-            }
-          }
-        }
-      }
-      // Batch parsing is unreliable for multi-text, fall back to sequential
-      if (result && texts.length <= 1) {
-        translations.push(result);
-      } else {
-        throw new Error('fallback');
-      }
-    } catch {
-      // Sequential fallback for multiple texts
-      for (const text of texts) {
-        const singleUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${lang}&dt=t&q=${encodeURIComponent(text)}`;
-        const resp = await fetch(singleUrl);
-        if (!resp.ok) throw new Error(`Google Translate error: ${resp.status}`);
-        const singleData = await resp.json();
-        let r = '';
-        if (singleData && singleData[0]) {
-          for (const part of singleData[0]) {
-            if (part && part[0]) r += part[0];
-          }
-        }
-        translations.push(r || text);
-      }
-    }
+    translations.push(result || text);
   }
 
   return { translations };
@@ -541,32 +488,50 @@ async function googleTranslate(texts, targetLang) {
 let msToken = null;
 let msTokenExpiry = 0;
 
+async function getMicrosoftToken() {
+  if (msToken && Date.now() < msTokenExpiry) return msToken;
+
+  // Try restoring from session storage (survives SW restarts)
+  if (!msToken) {
+    const stored = await chrome.storage.session?.get(['msToken', 'msTokenExpiry']);
+    if (stored?.msToken && stored.msTokenExpiry && Date.now() < stored.msTokenExpiry) {
+      msToken = stored.msToken;
+      msTokenExpiry = stored.msTokenExpiry;
+      return msToken;
+    }
+  }
+
+  try {
+    const authResp = await fetch('https://edge.microsoft.com/translate/auth');
+    if (!authResp.ok) throw new Error('Auth failed');
+    msToken = await authResp.text();
+    msTokenExpiry = Date.now() + 8 * 60 * 1000;
+    // Persist to session storage
+    chrome.storage.session?.set({ msToken, msTokenExpiry }).catch(() => {});
+    return msToken;
+  } catch (e) {
+    throw new Error('Microsoft Translator auth failed, please try again or switch to another engine');
+  }
+}
+
 async function microsoftTranslate(texts, targetLang) {
   const lang = targetLang === 'zh-CN' ? 'zh-Hans' : targetLang === 'zh-TW' ? 'zh-Hant' : targetLang;
 
-  if (!msToken || Date.now() > msTokenExpiry) {
-    try {
-      const authResp = await fetch('https://edge.microsoft.com/translate/auth');
-      if (!authResp.ok) throw new Error('Auth failed');
-      msToken = await authResp.text();
-      msTokenExpiry = Date.now() + 8 * 60 * 1000;
-    } catch (e) {
-      throw new Error('Microsoft Translator auth failed, please try again or switch to another engine');
-    }
-  }
+  const token = await getMicrosoftToken();
 
   const body = texts.map(t => ({ text: t }));
   const response = await fetch(`https://api.cognitive.microsofttranslator.com/translate?api-version=3.0&to=${lang}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${msToken}`
+      'Authorization': `Bearer ${token}`
     },
     body: JSON.stringify(body)
   });
 
   if (!response.ok) {
     msToken = null;
+    chrome.storage.session?.remove('msToken').catch(() => {});
     throw new Error(`Microsoft Translator error: ${response.status}`);
   }
 

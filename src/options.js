@@ -2,6 +2,10 @@
 document.addEventListener('DOMContentLoaded', () => {
   const providerSelect = document.getElementById('providerSelect');
   const targetLangSelect = document.getElementById('targetLang');
+  const readerThemeSelect = document.getElementById('readerTheme');
+  const exportImageFormatSelect = document.getElementById('exportImageFormat');
+  const exportQualitySelect = document.getElementById('exportQuality');
+  const exportQualityField = document.getElementById('exportQualityField');
   const providerConfig = document.getElementById('providerConfig');
   const activeSummaryLine = document.getElementById('activeSummaryLine');
   const statusProvider = document.getElementById('statusProvider');
@@ -31,6 +35,11 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   let currentProvider = 'google';
+
+  function updateExportQualityVisibility() {
+    if (!exportImageFormatSelect || !exportQualityField) return;
+    exportQualityField.style.display = exportImageFormatSelect.value === 'png' ? 'none' : '';
+  }
 
   function escapeAttr(str) {
     return (str || '')
@@ -357,7 +366,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const info = getProviderInfo(draft.provider);
     const toSet = {
       translationProvider: draft.provider,
-      targetLang: draft.targetLang
+      targetLang: draft.targetLang,
+      readerTheme: readerThemeSelect ? readerThemeSelect.value : 'default',
+      exportImageFormat: exportImageFormatSelect ? exportImageFormatSelect.value : 'jpeg',
+      exportQuality: exportQualitySelect ? exportQualitySelect.value : 'balanced'
     };
 
     if (info.type !== 'free') {
@@ -389,12 +401,366 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  chrome.storage.local.get(['translationProvider', 'targetLang'], (baseSettings) => {
+  chrome.storage.local.get(['translationProvider', 'targetLang', 'readerTheme', 'exportImageFormat', 'exportQuality'], (baseSettings) => {
     currentProvider = baseSettings.translationProvider || 'google';
     if (!PROVIDERS[currentProvider]) currentProvider = 'google';
 
     providerSelect.value = currentProvider;
     targetLangSelect.value = baseSettings.targetLang || 'zh-CN';
+    if (readerThemeSelect) readerThemeSelect.value = baseSettings.readerTheme || 'default';
+    if (exportImageFormatSelect) exportImageFormatSelect.value = baseSettings.exportImageFormat || 'jpeg';
+    if (exportQualitySelect) exportQualitySelect.value = baseSettings.exportQuality || 'balanced';
+    updateExportQualityVisibility();
     loadAndRenderConfig(currentProvider);
   });
+
+  exportImageFormatSelect?.addEventListener('change', updateExportQualityVisibility);
+
+  // ================================================================
+  // Encrypted Backup / Restore  (PBKDF2 + AES-GCM via Web Crypto API)
+  // ================================================================
+
+  const BACKUP_KEYS = [
+    'translationProvider',
+    'targetLang',
+    'readerTheme',
+    'exportImageFormat',
+    'exportQuality',
+    'google_apiKey',
+    'microsoft_apiKey',
+    'openai_apiKey',
+    'openai_model',
+    'openai_endpoint',
+    'deepseek_apiKey',
+    'deepseek_model',
+    'deepseek_endpoint',
+    'qwen_apiKey',
+    'qwen_model',
+    'qwen_endpoint',
+    'gemini_apiKey',
+    'gemini_model',
+    'gemini_endpoint',
+    'glm_apiKey',
+    'glm_model',
+    'glm_endpoint',
+    'kimi_apiKey',
+    'kimi_model',
+    'kimi_endpoint',
+    'openrouter_apiKey',
+    'openrouter_model',
+    'openrouter_endpoint',
+    'claude_apiKey',
+    'claude_model',
+    'claude_endpoint',
+    'deepl_apiKey',
+    'deepl_plan',
+    'deepl_endpoint',
+    'custom_openai_apiKey',
+    'custom_openai_model',
+    'custom_openai_endpoint',
+    'custom_claude_apiKey',
+    'custom_claude_model',
+    'custom_claude_endpoint',
+  ];
+
+  // Derive an AES-GCM key from password using PBKDF2
+  async function deriveKey(password, salt) {
+    const encoder = new TextEncoder();
+    const keyMaterial = await crypto.subtle.importKey(
+      'raw', encoder.encode(password), 'PBKDF2', false, ['deriveKey']
+    );
+    return crypto.subtle.deriveKey(
+      { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
+      keyMaterial,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt', 'decrypt']
+    );
+  }
+
+  // Encrypt data object → base64 string  (salt || iv || ciphertext)
+  async function encryptBackup(data, password) {
+    const encoder = new TextEncoder();
+    const salt = crypto.getRandomValues(new Uint8Array(16));  // NIST SP 800-132 recommends ≥ 16 bytes
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const key = await deriveKey(password, salt);
+    const encrypted = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv },
+      key,
+      encoder.encode(JSON.stringify(data))
+    );
+    // Concatenate: salt (16) + iv (12) + ciphertext
+    const combined = new Uint8Array(salt.length + iv.length + encrypted.byteLength);
+    combined.set(salt, 0);
+    combined.set(iv, salt.length);
+    combined.set(new Uint8Array(encrypted), salt.length + iv.length);
+    // Base64 encode
+    return btoa(String.fromCharCode(...combined));
+  }
+
+  // Decrypt base64 string → data object
+  async function decryptBackup(base64Str, password) {
+    try {
+      const combined = Uint8Array.from(atob(base64Str), c => c.charCodeAt(0));
+      // v2 format: salt(16) + iv(12) + ciphertext
+      const salt = combined.slice(0, 16);
+      const iv = combined.slice(16, 28);
+      const ciphertext = combined.slice(28);
+      const key = await deriveKey(password, salt);
+      const decrypted = await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv },
+        key,
+        ciphertext
+      );
+      const decoder = new TextDecoder();
+      return JSON.parse(decoder.decode(decrypted));
+    } catch (e) {
+      return null; // wrong password or corrupted file
+    }
+  }
+
+  // Collect all backup-able settings from chrome.storage
+  function collectBackupData() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(BACKUP_KEYS, (items) => {
+        items._backupVersion = chrome.runtime.getManifest().version;
+        resolve(items);
+      });
+    });
+  }
+
+  // Write restored data to chrome.storage (whitelist only known keys)
+  function restoreBackupData(data) {
+    const backupVersion = data._backupVersion || 'unknown';
+    console.log('[NewsForge] Restoring backup from version:', backupVersion);
+
+    const allowed = new Set(BACKUP_KEYS);
+    const safeData = {};
+    for (const [key, value] of Object.entries(data)) {
+      if (allowed.has(key)) {
+        safeData[key] = value;
+      } else {
+        console.warn('[NewsForge] Skipping unknown backup key:', key);
+      }
+    }
+    // Validate translationProvider is a known provider
+    if (safeData.translationProvider && !PROVIDERS[safeData.translationProvider]) {
+      console.warn('[NewsForge] Unknown provider in backup, resetting to google:', safeData.translationProvider);
+      safeData.translationProvider = 'google';
+    }
+    return new Promise((resolve, reject) => {
+      chrome.storage.local.remove(BACKUP_KEYS, () => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+
+        chrome.storage.local.set(safeData, () => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+            return;
+          }
+          resolve();
+        });
+      });
+    });
+  }
+
+  // ---- Modal UI ----
+  let _modalMode = null; // 'export' | 'import'
+  let _pendingImportPassword = ''; // stored in closure, not DOM
+
+  function showBackupModal(mode) {
+    _modalMode = mode;
+    const modal = document.getElementById('backupModal');
+    const title = document.getElementById('backupModalTitle');
+    const desc = document.getElementById('backupModalDesc');
+    const pwField = document.getElementById('backupPasswordField');
+    const confirmField = document.getElementById('backupConfirmField');
+    const confirmBtn = document.getElementById('backupModalConfirmBtn');
+    const confirmText = document.getElementById('backupModalConfirmText');
+    const errorEl = document.getElementById('backupModalError');
+    const pwInput = document.getElementById('backupModalPassword');
+    const confirmInput = document.getElementById('backupModalConfirm');
+
+    errorEl.style.display = 'none';
+    pwInput.value = '';
+    confirmInput.value = '';
+
+    if (mode === 'export') {
+      title.textContent = 'Export Encrypted Backup';
+      desc.textContent = 'Enter a password to encrypt your settings. You will need this password to restore the backup on another device.';
+      confirmField.style.display = 'block';
+      confirmText.textContent = 'Export .nfbackup';
+    } else {
+      title.textContent = 'Import Encrypted Backup';
+      desc.textContent = 'Select your .nfbackup file and enter the password used during export.';
+      confirmField.style.display = 'none';
+      confirmText.textContent = 'Import';
+    }
+
+    modal.style.display = 'flex';
+    pwInput.focus();
+  }
+
+  function hideBackupModal() {
+    document.getElementById('backupModal').style.display = 'none';
+    _modalMode = null;
+  }
+
+  document.getElementById('backupModalCancelBtn').addEventListener('click', hideBackupModal);
+
+  document.getElementById('backupModalPassword').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      if (_modalMode === 'import') {
+        document.getElementById('backupModalConfirmBtn').click();
+      } else {
+        document.getElementById('backupModalConfirm').focus();
+      }
+    }
+  });
+
+  document.getElementById('backupModalConfirm').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('backupModalConfirmBtn').click();
+  });
+
+  document.getElementById('backupModalConfirmBtn').addEventListener('click', async () => {
+    const errorEl = document.getElementById('backupModalError');
+    const pwInput = document.getElementById('backupModalPassword');
+    const confirmInput = document.getElementById('backupModalConfirm');
+    errorEl.style.display = 'none';
+
+    const password = pwInput.value;
+
+    if (_modalMode === 'export') {
+      const confirm = confirmInput.value;
+      if (password.length < 8) {
+        errorEl.textContent = 'Password must be at least 8 characters.';
+        errorEl.style.display = 'block';
+        return;
+      }
+      if (password !== confirm) {
+        errorEl.textContent = 'Passwords do not match.';
+        errorEl.style.display = 'block';
+        return;
+      }
+      confirmInput.value = '';
+      pwInput.value = '';
+      hideBackupModal();
+      await doExportBackup(password);
+
+    } else if (_modalMode === 'import') {
+      if (!password) {
+        errorEl.textContent = 'Please enter the password.';
+        errorEl.style.display = 'block';
+        return;
+      }
+      // Trigger file picker
+      _pendingImportPassword = password;
+      document.getElementById('importFileInput').click();
+    }
+  });
+
+  // ---- Export ----
+  async function doExportBackup(password) {
+    const btn = document.getElementById('btnExportBackup');
+    const orig = btn.textContent;
+    btn.textContent = 'Encrypting...';
+    btn.disabled = true;
+
+    try {
+      const data = await collectBackupData();
+      const encrypted = await encryptBackup(data, password);
+
+      const blob = new Blob([encrypted], { type: 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `newsforge-backup-${new Date().toISOString().slice(0, 10)}.nfbackup`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      btn.textContent = 'Exported!';
+      setTimeout(() => { btn.textContent = orig; }, 3000);
+    } catch (err) {
+      console.error('[NewsForge] export error:', err);
+      btn.textContent = 'Export failed';
+      setTimeout(() => { btn.textContent = orig; }, 3000);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  // ---- Import ----
+  document.getElementById('importFileInput').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    e.target.value = ''; // reset so same file can be re-selected
+
+    const password = _pendingImportPassword;
+    _pendingImportPassword = ''; // clear from memory ASAP
+
+    const btn = document.getElementById('btnImportBackup');
+    const orig = btn.textContent;
+    btn.textContent = 'Decrypting...';
+    btn.disabled = true;
+    const errorEl = document.getElementById('backupModalError');
+
+    try {
+      const text = await file.text();
+      const data = await decryptBackup(text.trim(), password);
+
+      if (!data) {
+        throw new Error('Invalid password or corrupted file.');
+      }
+
+      // Restore data
+      await restoreBackupData(data);
+
+      btn.textContent = 'Imported!';
+      setTimeout(() => {
+        btn.textContent = orig;
+        btn.disabled = false;
+        // Refresh the page to reflect restored settings
+        window.location.reload();
+      }, 1500);
+    } catch (err) {
+      console.error('[NewsForge] import error:', err);
+      btn.textContent = 'Import failed';
+      btn.disabled = false;
+      // Show error in the modal if still visible, otherwise alert
+      if (document.getElementById('backupModal').style.display !== 'none') {
+        const errEl = document.getElementById('backupModalError');
+        errEl.textContent = err.message || 'Invalid password or corrupted file.';
+        errEl.style.display = 'block';
+      } else {
+        alert(err.message || 'Import failed: invalid password or corrupted file.');
+      }
+      setTimeout(() => { btn.textContent = orig; }, 3000);
+    }
+  });
+
+  // ---- Button wiring ----
+  document.getElementById('btnExportBackup').addEventListener('click', () => {
+    showBackupModal('export');
+  });
+
+  document.getElementById('btnImportBackup').addEventListener('click', () => {
+    showBackupModal('import');
+  });
+
+  // Close modal on backdrop click
+  document.getElementById('backupModal').addEventListener('click', (e) => {
+    if (e.target.id === 'backupModal') hideBackupModal();
+  });
+
+  // Escape key closes modal
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && document.getElementById('backupModal').style.display !== 'none') {
+      hideBackupModal();
+    }
+  });
+
 });

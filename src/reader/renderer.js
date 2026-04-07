@@ -1,4 +1,57 @@
 // Reader Renderer - 渲染阅读模式 UI
+// Theme support: NewsForge Default · Classic
+
+// Theme definitions — SINGLE SOURCE OF TRUTH
+const THEMES = {
+  default: {
+    label: 'NewsForge',
+    bg: '#faf8f5',
+    bgWarm: '#f5f2ed',
+    text: '#1a1815',
+    textSecondary: '#5a5651',
+    accent: '#c45d3e',
+    accentHover: '#a84d32',
+    border: '#e8e4df',
+    fontSerif: "'Source Serif 4', Georgia, 'Noto Serif SC', serif",
+    fontSans: "'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif",
+    fontTitleCn: "'Noto Serif SC', 'Source Han Serif SC', 'SimSun', serif",
+    toolbarBg: 'rgba(250, 248, 245, 0.92)',
+    blankThreshold: 20,
+    blankSearchSpan: 0.25,
+  },
+  classic: {
+    label: 'Classic',
+    bg: '#ffffff',
+    bgWarm: '#f6f6f5',
+    text: '#000000',
+    textSecondary: '#000000',
+    accent: '#000000',
+    accentHover: '#333333',
+    border: '#e0e0e0',
+    fontSerif: "'Noto Serif SC', 'Source Han Serif SC', 'SimSun', serif",
+    fontSans: "'Noto Serif SC', 'Source Han Serif SC', 'SimSun', serif",
+    fontTitleCn: "'Noto Serif SC', 'Source Han Serif SC', 'SimSun', serif",
+    toolbarBg: 'rgba(255, 255, 255, 0.95)',
+    blankThreshold: 20,
+    blankSearchSpan: 0.25,
+  },
+};
+
+// Theme key registry — drives theme-select dropdown options in the toolbar
+const THEME_KEYS = Object.keys(THEMES);
+
+const EXPORT_IMAGE_FORMATS = {
+  webp: { mime: 'image/webp', ext: 'webp' },
+  png: { mime: 'image/png', ext: 'png' },
+  jpeg: { mime: 'image/jpeg', ext: 'jpg' },
+};
+
+const EXPORT_QUALITY_PRESETS = {
+  high: { screenshotQuality: 0.96, pdfQuality: 0.92 },
+  balanced: { screenshotQuality: 0.9, pdfQuality: 0.88 },
+  small: { screenshotQuality: 0.82, pdfQuality: 0.78 },
+};
+
 const ReaderRenderer = {
   active: false,
   article: null,
@@ -9,6 +62,53 @@ const ReaderRenderer = {
   _targetLang: 'zh-CN',
   _sessionId: 0,
   _translationRunId: 0,
+  _currentTheme: 'default',
+
+  // Load saved theme from storage — populates in-memory cache.
+  // Returns a Promise so callers must await it before render().
+  // Common path (cache warm): resolves immediately from cache.
+  // Cold path (first ever open): reads from storage, resolves when callback fires.
+  _loadTheme() {
+    return new Promise((resolve) => {
+      // Hot path: return cached value synchronously, resolve immediately
+      if (this._cachedTheme && THEMES[this._cachedTheme]) {
+        this._currentTheme = this._cachedTheme;
+        resolve(this._currentTheme);
+        return;
+      }
+      // Cold path: read from storage
+      chrome.storage.local.get('readerTheme', (data) => {
+        const saved = (data.readerTheme && THEMES[data.readerTheme]) ? data.readerTheme : 'default';
+        this._currentTheme = saved;
+        this._cachedTheme = saved;
+        resolve(saved);
+      });
+    });
+  },
+
+  _saveTheme(theme) {
+    // Validate BEFORE updating memory state
+    if (!THEMES[theme]) return false;
+    this._currentTheme = theme;
+    this._cachedTheme = theme;
+    chrome.storage.local.set({ readerTheme: theme }, () => {
+      // Storage write is fire-and-forget; errors are silently ignored
+    });
+    return true;
+  },
+
+  _loadExportSettings() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(['exportImageFormat', 'exportQuality'], (data) => {
+        const formatKey = EXPORT_IMAGE_FORMATS[data.exportImageFormat] ? data.exportImageFormat : 'jpeg';
+        const qualityKey = EXPORT_QUALITY_PRESETS[data.exportQuality] ? data.exportQuality : 'balanced';
+        resolve({
+          imageFormat: EXPORT_IMAGE_FORMATS[formatKey],
+          quality: EXPORT_QUALITY_PRESETS[qualityKey],
+        });
+      });
+    });
+  },
 
   render(article) {
     this._sessionId++;
@@ -31,7 +131,9 @@ const ReaderRenderer = {
 
     this.overlay = document.createElement('div');
     this.overlay.id = 'newsforge-reader';
-    this.overlay.className = 'nf-reader';
+    // Store theme key in data attribute — the authoritative source for _getCurrentThemeKey()
+    this.overlay.dataset.theme = this._currentTheme;
+    this.overlay.className = `nf-reader nf-theme-${this._currentTheme}`;
 
     this.overlay.innerHTML = `
       <div class="nf-progress-bar" id="nf-progress" style="width: 0%;"></div>
@@ -41,6 +143,11 @@ const ReaderRenderer = {
           ${article.date ? `<span class="nf-date">${article.date}</span>` : ''}
         </div>
         <div class="nf-reader-actions">
+          <select class="nf-select nf-theme-select" title="Style">
+            ${THEME_KEYS.map(key =>
+              `<option value="${key}" ${key === this._currentTheme ? 'selected' : ''}>${THEMES[key].label}</option>`
+            ).join('')}
+          </select>
           <select class="nf-select nf-translate-mode" title="Translation mode">
             <option value="bilingual">Bilingual</option>
             <option value="target">Translation</option>
@@ -128,6 +235,19 @@ const ReaderRenderer = {
     this.overlay.querySelector('.nf-btn-screenshot').addEventListener('click', () => this.takeScreenshot());
     this.overlay.querySelector('.nf-btn-pdf').addEventListener('click', () => this.exportPDF());
 
+    // Theme switcher
+    this.overlay.querySelector('.nf-theme-select').addEventListener('change', (e) => {
+      const newTheme = e.target.value;
+      if (this._saveTheme(newTheme)) {
+        // Update data attribute and class — both kept in sync
+        this.overlay.dataset.theme = newTheme;
+        this.overlay.className = `nf-reader nf-theme-${newTheme}`;
+      } else {
+        // Invalid theme — reset select to current
+        e.target.value = this._currentTheme;
+      }
+    });
+
     this.overlay.querySelector('.nf-translate-mode').addEventListener('change', (e) => {
       if (this.translated) {
         this.applyTranslateMode(e.target.value);
@@ -170,6 +290,38 @@ const ReaderRenderer = {
       title: this.article?.title || '',
       summary: this.article?.standfirst || ''
     };
+  },
+
+  _normalizeTranslationCompareText(text = '') {
+    return String(text).replace(/\s+/g, ' ').trim().toLowerCase();
+  },
+
+  _escapeRegExp(text = '') {
+    return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  },
+
+  sanitizeTitleLikeTranslation(translation, original) {
+    let text = String(translation || '').replace(/\r\n/g, '\n').trim();
+    const originalText = String(original || '').trim();
+    if (!text || !originalText) return text;
+
+    const originalNorm = this._normalizeTranslationCompareText(originalText);
+    const lines = text.split('\n').map(line => line.trim()).filter(Boolean);
+    if (lines.length > 1 && this._normalizeTranslationCompareText(lines[0]) === originalNorm) {
+      text = lines.slice(1).join(' ').trim();
+    }
+
+    const originalPattern = this._escapeRegExp(originalText).replace(/\s+/g, '\\s+');
+    const prefixedOriginalPattern = new RegExp(
+      `^\\s*${originalPattern}\\s*(?:[:：\\-–—|]\\s*)?`,
+      'i'
+    );
+    const withoutOriginalPrefix = text.replace(prefixedOriginalPattern, '').trim();
+    if (withoutOriginalPrefix && withoutOriginalPrefix !== text) {
+      text = withoutOriginalPrefix;
+    }
+
+    return text.replace(/\s*\n+\s*/g, ' ').trim();
   },
 
   applyTranslateMode(mode) {
@@ -228,18 +380,16 @@ const ReaderRenderer = {
     const titleEl = overlay.querySelector('.nf-title');
     const translationContext = this.buildTranslationContext();
 
-    // Read target language from storage
     try {
       const settings = await new Promise(resolve =>
         chrome.storage.local.get('targetLang', resolve)
       );
       this._targetLang = settings.targetLang || 'zh-CN';
     } catch (e) {
-      // fallback to default
+      this._targetLang = 'zh-CN';
     }
     const targetLang = this._targetLang;
 
-    // Collect body elements in DOM order
     const bodyElements = [];
     overlay.querySelectorAll('.nf-standfirst[data-original], .nf-heading[data-original], .nf-paragraph[data-original]')
       .forEach(el => bodyElements.push(el));
@@ -249,23 +399,31 @@ const ReaderRenderer = {
       btn.querySelector('span').textContent = 'Translate';
       btn.classList.remove('nf-loading');
       this.showToast('Nothing to translate');
+      this.translating = false;
       return;
     }
 
     let completed = 0;
-
     bodyElements.forEach(el => el.classList.add('nf-translating'));
 
     const applyTranslation = (el, translation) => {
       if (!el || !translation || isStale()) return;
+      const isTitleLike = (
+        el.classList.contains('nf-title') ||
+        el.classList.contains('nf-heading') ||
+        el.classList.contains('nf-standfirst')
+      );
+      const normalizedTranslation = isTitleLike
+        ? this.sanitizeTitleLikeTranslation(translation, el.dataset.original)
+        : String(translation || '').trim();
+      if (!normalizedTranslation) return;
       el.innerHTML = `<span class="nf-original">${this.escapeHtml(el.dataset.original)}</span>
-                     <span class="nf-translation">${this.escapeHtml(translation)}</span>`;
+                     <span class="nf-translation">${this.escapeHtml(normalizedTranslation)}</span>`;
       el.classList.remove('nf-translating');
       el.classList.add('nf-translated');
-      const isTitle = el.classList.contains('nf-title');
-      const isHeading = el.classList.contains('nf-heading');
-      const isStandfirst = el.classList.contains('nf-standfirst');
-      if (isTitle || isHeading || isStandfirst) el.classList.add('nf-title-like');
+      if (isTitleLike) {
+        el.classList.add('nf-title-like');
+      }
       if (mode === 'target') el.classList.add('nf-target-only');
     };
 
@@ -277,7 +435,6 @@ const ReaderRenderer = {
     };
 
     try {
-      // Step 1: Translate title first for immediate feedback
       if (titleEl?.dataset.original) {
         btn.querySelector('span').textContent = `Translating 1/${total}...`;
         const response = await chrome.runtime.sendMessage({
@@ -298,7 +455,6 @@ const ReaderRenderer = {
         updateProgress();
       }
 
-      // Step 2: Translate body in small chunks, render as they arrive
       const chunkSize = 3;
       const bodyTexts = bodyElements.map(el => el.dataset.original);
 
@@ -364,199 +520,197 @@ const ReaderRenderer = {
     setTimeout(() => toast.remove(), 4000);
   },
 
-  // ========== Shared export clone logic ==========
+  // ========== Export clone logic ==========
 
-  // Create a styled clone of .nf-reader-content for screenshot/PDF export
+  // Read theme from data attribute — the authoritative source set by render() and theme switch
+  _getCurrentThemeKey() {
+    return this.overlay?.dataset?.theme || 'default';
+  },
+
   _createExportClone(mode) {
     if (!this.overlay) return null;
     const content = this.overlay.querySelector('.nf-reader-content');
     if (!content) return null;
 
+    const themeKey = this._getCurrentThemeKey();
+    const theme = THEMES[themeKey] || THEMES.default;
     const clone = content.cloneNode(true);
+
     clone.style.cssText = `
       position: absolute; left: -9999px; top: 0;
       width: 680px; padding: 56px 32px 80px;
-      background: #faf8f5; color: #1a1815;
-      font-family: 'Source Serif 4', Georgia, 'Noto Serif SC', serif;
+      background: ${theme.bg}; color: ${theme.text};
+      font-family: ${theme.fontSerif};
       line-height: 1.8;
     `;
 
     const origDisplay = mode === 'target' ? 'display:none;' : 'display:block;';
-    const cnSans = '"Noto Sans SC","PingFang SC","Microsoft YaHei",-apple-system,sans-serif';
-    const cnSerif = '"Noto Serif SC","Source Han Serif SC","SimSun",Georgia,serif';
 
     const styleMap = {
-      '.nf-title': `font-size:38px;font-weight:700;line-height:1.2;margin:0 0 24px;color:#1a1815;letter-spacing:-0.5px;font-family:${cnSerif};`,
-      '.nf-standfirst': `font-size:24px;line-height:1.55;margin:0 0 32px;color:#5a5651;font-family:${cnSerif};`,
-      '.nf-meta': 'display:flex;align-items:center;gap:20px;margin-bottom:40px;padding-bottom:32px;border-bottom:1px solid #e8e4df;',
-      '.nf-author': `font-family:${cnSans};font-size:14px;font-weight:500;color:#5a5651;`,
-      '.nf-heading': `font-size:24px;font-weight:600;margin:44px 0 20px;color:#1a1815;letter-spacing:-0.2px;padding-top:12px;border-top:2px solid #c45d3e;display:inline-block;font-family:${cnSerif};`,
-      '.nf-paragraph': 'font-size:18px;line-height:1.9;margin:0 0 28px;color:#5a5651;',
-      '.nf-original': origDisplay + 'color:#5a5651;margin-bottom:0;',
-      '.nf-translation': `display:block;font-family:${cnSans};font-size:18px;line-height:1.9;color:#a84d32;margin-top:10px;`,
+      '.nf-title': `font-size:${theme.titleSize || '38px'};font-weight:${theme.titleWeight || '700'};line-height:1.2;margin:0 0 24px;color:${theme.text};letter-spacing:-0.5px;font-family:${theme.fontTitleCn};`,
+      '.nf-standfirst': `font-size:24px;line-height:1.55;margin:0 0 32px;color:${theme.textSecondary};font-family:${theme.fontSerif};`,
+      '.nf-meta': `display:flex;align-items:center;gap:20px;margin-bottom:40px;padding-bottom:32px;border-bottom:1px solid ${theme.border};`,
+      '.nf-author': `font-family:${theme.fontSans};font-size:14px;font-weight:500;color:${theme.textSecondary};`,
+      '.nf-heading': `font-size:24px;font-weight:600;margin:44px 0 20px;color:${theme.text};letter-spacing:-0.2px;padding-top:12px;border-top:2px solid ${theme.accent};display:inline-block;font-family:${theme.fontSerif};`,
+      '.nf-paragraph': `font-size:18px;line-height:1.9;margin:0 0 28px;color:${theme.textSecondary};`,
+      '.nf-original': origDisplay + `color:${theme.textSecondary};margin-bottom:0;`,
+      '.nf-translation': `display:block;font-family:${theme.fontSans};font-size:18px;line-height:1.9;color:${theme.accentHover};margin-top:10px;`,
       '.nf-featured-image': 'margin:0 -32px 40px;padding:0;',
       '.nf-featured-image img': 'width:100%;height:auto;display:block;border-radius:12px;',
       '.nf-article-image': 'margin:32px -16px;padding:0;',
       '.nf-article-image img': 'width:100%;height:auto;display:block;border-radius:8px;',
-      '.nf-article-image figcaption': `font-family:${cnSans};font-size:13px;color:#9a958e;margin-top:10px;padding:0 16px;line-height:1.5;`,
+      '.nf-article-image figcaption': `font-family:${theme.fontSans};font-size:13px;color:${theme.textSecondary};margin-top:10px;padding:0 16px;line-height:1.5;opacity:0.7;`,
       '.nf-body': 'margin-top:32px;',
     };
 
     for (const [selector, styles] of Object.entries(styleMap)) {
       clone.querySelectorAll(selector).forEach(el => {
-        el.style.cssText += styles;
+        el.style.cssText = styles;   // overwrite, not append
       });
     }
-    for (const [selector, styles] of Object.entries(styleMap)) {
-      if (clone.matches && clone.matches(selector)) {
-        clone.style.cssText += styles;
-      }
+    if (clone.matches && clone.matches('.nf-reader-content')) {
+      const match = Object.entries(styleMap).find(([s]) => clone.matches(s));
+      if (match) clone.style.cssText = match[1];
     }
 
-    // 标题内的翻译恢复标题字号和字体
+    // Title translation keeps title font/size/family
     clone.querySelectorAll('.nf-title .nf-translation').forEach(el => {
-      el.style.fontSize = '38px';
-      el.style.fontWeight = '700';
-      el.style.lineHeight = '1.2';
-      el.style.fontFamily = cnSerif;
-      el.style.letterSpacing = '-0.5px';
-      el.style.marginTop = '12px';
+      el.style.cssText = `display:block;font-size:${theme.titleSize || '38px'};font-weight:${theme.titleWeight || '700'};line-height:1.2;font-family:${theme.fontTitleCn};letter-spacing:-0.5px;margin-top:12px;color:${theme.accentHover};`;
     });
     clone.querySelectorAll('.nf-title .nf-original').forEach(el => {
-      el.style.fontSize = '38px';
-      el.style.fontWeight = '700';
-      el.style.lineHeight = '1.2';
-      el.style.fontFamily = cnSerif;
-      el.style.letterSpacing = '-0.5px';
-    });
-    clone.querySelectorAll('.nf-standfirst .nf-original').forEach(el => {
-      el.style.fontSize = '24px';
-      el.style.lineHeight = '1.55';
-      el.style.fontFamily = cnSerif;
-      el.style.color = '#5a5651';
-      el.style.marginTop = '0';
-    });
-    clone.querySelectorAll('.nf-standfirst .nf-translation').forEach(el => {
-      el.style.fontSize = '24px';
-      el.style.lineHeight = '1.55';
-      el.style.fontFamily = cnSerif;
-      el.style.color = '#a84d32';
-      el.style.marginTop = '8px';
-    });
-    // 副标题翻译恢复副标题字号
-    clone.querySelectorAll('.nf-heading .nf-original').forEach(el => {
-      el.style.fontSize = '24px';
-      el.style.fontWeight = '600';
-      el.style.lineHeight = '1.3';
-      el.style.fontFamily = cnSerif;
-      el.style.marginTop = '0';
-    });
-    clone.querySelectorAll('.nf-heading .nf-translation').forEach(el => {
-      el.style.fontSize = '24px';
-      el.style.fontWeight = '600';
-      el.style.lineHeight = '1.3';
-      el.style.fontFamily = cnSerif;
-      el.style.color = '#a84d32';
-      el.style.marginTop = '8px';
+      el.style.cssText = `display:block;font-size:${theme.titleSize || '38px'};font-weight:${theme.titleWeight || '700'};line-height:1.2;font-family:${theme.fontTitleCn};letter-spacing:-0.5px;color:${theme.text};`;
     });
 
-    // 译文模式：段落内的译文样式融入正文
+    // Standfirst translation
+    clone.querySelectorAll('.nf-standfirst .nf-original').forEach(el => {
+      el.style.cssText = `display:block;font-size:24px;line-height:1.55;font-family:${theme.fontSerif};color:${theme.textSecondary};margin-top:0;`;
+    });
+    clone.querySelectorAll('.nf-standfirst .nf-translation').forEach(el => {
+      el.style.cssText = `display:block;font-size:24px;line-height:1.55;font-family:${theme.fontSans};color:${theme.accentHover};margin-top:8px;`;
+    });
+
+    // Heading translation
+    clone.querySelectorAll('.nf-heading .nf-original').forEach(el => {
+      el.style.cssText = `display:block;font-size:24px;font-weight:600;line-height:1.3;font-family:${theme.fontSerif};margin-top:0;color:${theme.text};`;
+    });
+    clone.querySelectorAll('.nf-heading .nf-translation').forEach(el => {
+      el.style.cssText = `display:block;font-size:24px;font-weight:600;line-height:1.3;font-family:${theme.fontSans};color:${theme.accentHover};margin-top:8px;`;
+    });
+
+    // Target-only mode: translation blends into body
     if (mode === 'target') {
       clone.querySelectorAll('.nf-paragraph .nf-translation').forEach(el => {
-        el.style.fontSize = '18px';
-        el.style.lineHeight = '1.9';
-        el.style.color = '#5a5651';
-        el.style.marginTop = '0';
+        el.style.cssText = `display:block;font-size:18px;line-height:1.9;color:${theme.textSecondary};margin-top:0;`;
       });
       clone.querySelectorAll('.nf-title .nf-translation').forEach(el => {
-        el.style.color = '#1a1815';
+        el.style.color = theme.text;
       });
       clone.querySelectorAll('.nf-standfirst .nf-translation').forEach(el => {
-        el.style.color = '#5a5651';
-        el.style.marginTop = '0';
+        el.style.cssText = `display:block;font-size:24px;line-height:1.55;color:${theme.textSecondary};margin-top:0;`;
       });
       clone.querySelectorAll('.nf-heading .nf-translation').forEach(el => {
-        el.style.color = '#1a1815';
+        el.style.color = theme.text;
         el.style.marginTop = '0';
       });
     }
 
-    // 文末添加原文链接
+    // Source URL bar at bottom
     if (this.article?.url) {
       const urlBar = document.createElement('div');
       urlBar.className = 'nf-source-url';
       urlBar.textContent = this.article.url.split('?')[0];
-      urlBar.style.cssText = `margin-top:48px;padding-top:20px;border-top:1px solid #e8e4df;font-family:${cnSans};font-size:12px;color:#9a958e;line-height:1.5;word-break:break-all;`;
+      urlBar.style.cssText = `margin-top:48px;padding-top:20px;border-top:1px solid ${theme.border};font-family:${theme.fontSans};font-size:12px;color:${theme.textSecondary};line-height:1.5;word-break:break-all;opacity:0.6;`;
       clone.appendChild(urlBar);
     }
 
     return clone;
   },
 
-  // 截图
   async takeScreenshot() {
     if (typeof html2canvas === 'undefined' || !this.overlay) return;
 
     const btn = this.overlay.querySelector('.nf-btn-screenshot');
     btn.classList.add('nf-loading');
     const mode = this.getTranslateMode();
+    const themeKey = this._getCurrentThemeKey();
+    const theme = THEMES[themeKey] || THEMES.default;
+    let clone = null;
 
     try {
-      const clone = this._createExportClone(mode);
+      clone = this._createExportClone(mode);
       if (!clone) throw new Error('No content to capture');
 
       document.body.appendChild(clone);
 
       const canvas = await html2canvas(clone, {
-        backgroundColor: '#faf8f5',
+        backgroundColor: theme.bg,
         scale: 2,
         useCORS: true,
         allowTaint: true,
         logging: false,
       });
 
-      clone.remove();
+      const exportSettings = await this._loadExportSettings();
+      const { mime, ext } = exportSettings.imageFormat;
+      const quality = mime === 'image/png' ? undefined : exportSettings.quality.screenshotQuality;
 
       canvas.toBlob(blob => {
+        if (!blob) {
+          this.showToast('Screenshot export failed');
+          return;
+        }
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `newsforge-${Date.now()}.png`;
+        a.download = `newsforge-${Date.now()}.${ext}`;
         a.click();
         URL.revokeObjectURL(url);
-      }, 'image/png');
+      }, mime, quality);
     } catch (err) {
       console.error('NewsForge screenshot error:', err);
+      this.showToast(err.message || 'Screenshot failed');
+    } finally {
+      clone?.remove();
+      btn.classList.remove('nf-loading');
     }
-
-    btn.classList.remove('nf-loading');
   },
 
   // PDF 导出：html2canvas → 图片 → PDF，解决 CJK 乱码
+  // 空白检测使用主题自带的 blankThreshold（深色/浅色背景各自调校过）
   async exportPDF() {
     if ((typeof jspdf === 'undefined' && typeof window.jspdf === 'undefined') || !this.overlay) return;
     if (typeof html2canvas === 'undefined') return;
 
     const btn = this.overlay.querySelector('.nf-btn-pdf');
     btn.classList.add('nf-loading');
+    let clone = null;
 
     try {
       const mode = this.getTranslateMode();
-      const clone = this._createExportClone(mode);
+      const themeKey = this._getCurrentThemeKey();
+      const theme = THEMES[themeKey] || THEMES.default;
+      const exportSettings = await this._loadExportSettings();
+      const pdfQuality = exportSettings.quality.pdfQuality;
+
+      clone = this._createExportClone(mode);
       if (!clone) throw new Error('No content to export');
 
       document.body.appendChild(clone);
 
       const canvas = await html2canvas(clone, {
-        backgroundColor: '#faf8f5',
+        backgroundColor: theme.bg,
         scale: 2,
         useCORS: true,
         allowTaint: true,
         logging: false,
       });
-      clone.remove();
 
-      // 将 canvas 切割为 A4 页（智能分页：找空白行避免截断文字）
+      // Parse theme bg color for blank-detection
+      const bgHex = theme.bg; // '#faf8f5' or '#000000'
+      const bgR = parseInt(bgHex.slice(1, 3), 16);
+      const bgG = parseInt(bgHex.slice(3, 5), 16);
+      const bgB = parseInt(bgHex.slice(5, 7), 16);
+
       const { jsPDF } = window.jspdf;
       const pageW = 210, pageH = 297, margin = 10;
       const contentW = pageW - margin * 2;
@@ -564,28 +718,33 @@ const ReaderRenderer = {
 
       const pxPerMm = canvas.width / contentW;
       const pagePxH = Math.floor(contentH * pxPerMm);
+      const threshold = theme.blankThreshold || 20;
+      const searchSpan = theme.blankSearchSpan || 0.25;
 
       const imgData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
-      const bgR = 250, bgG = 248, bgB = 245; // #faf8f5
-      const threshold = 20;
 
+      // Check if a canvas row is "blank" (matches background color within threshold)
+      // Samples every 8th pixel for performance; if ANY non-background pixel found, row is non-blank
       const isBlankRow = (y) => {
         const rowStart = y * canvas.width * 4;
-        for (let x = 0; x < canvas.width * 4; x += 32) {
-          const r = imgData.data[rowStart + x];
-          const g = imgData.data[rowStart + x + 1];
-          const b = imgData.data[rowStart + x + 2];
-          if (Math.abs(r - bgR) > threshold || Math.abs(g - bgG) > threshold || Math.abs(b - bgB) > threshold) {
+        for (let x = 0; x < canvas.width * 4; x += 32) { // step = 8 pixels
+          const rPix = imgData.data[rowStart + x];
+          const gPix = imgData.data[rowStart + x + 1];
+          const bPix = imgData.data[rowStart + x + 2];
+          if (Math.abs(rPix - bgR) > threshold ||
+              Math.abs(gPix - bgG) > threshold ||
+              Math.abs(bPix - bgB) > threshold) {
             return false;
           }
         }
         return true;
       };
 
+      // Find nearest blank row to targetY (searches upward first, then downward)
       const findSafeCut = (targetY) => {
-        const searchRange = Math.floor(pagePxH * 0.25);
-        const minUp = Math.max(0, targetY - searchRange);
-        const maxDown = Math.min(canvas.height - 1, targetY + searchRange);
+        const searchPx = Math.floor(pagePxH * searchSpan);
+        const minUp = Math.max(0, targetY - searchPx);
+        const maxDown = Math.min(canvas.height - 1, targetY + searchPx);
 
         for (let y = targetY; y >= minUp; y -= 2) {
           if (isBlankRow(y)) return y;
@@ -593,7 +752,7 @@ const ReaderRenderer = {
         for (let y = targetY + 2; y <= maxDown; y += 2) {
           if (isBlankRow(y)) return y;
         }
-        return targetY;
+        return targetY; // no blank found — use exact target
       };
 
       const cuts = [0];
@@ -601,6 +760,7 @@ const ReaderRenderer = {
       while (lastCut + pagePxH < canvas.height) {
         const targetY = lastCut + pagePxH;
         const safeY = findSafeCut(targetY);
+        // Avoid infinite loop: if safeY lands on or before lastCut, force exact cut
         if (safeY <= lastCut) {
           cuts.push(targetY);
           lastCut = targetY;
@@ -615,7 +775,7 @@ const ReaderRenderer = {
       for (let i = 0; i < cuts.length; i++) {
         if (i > 0) doc.addPage();
 
-        doc.setFillColor(250, 248, 245);
+        doc.setFillColor(bgR, bgG, bgB);
         doc.rect(0, 0, pageW, pageH, 'F');
 
         const srcY = cuts[i];
@@ -629,16 +789,18 @@ const ReaderRenderer = {
         const ctx = pageCanvas.getContext('2d');
         ctx.drawImage(canvas, 0, srcY, canvas.width, srcH, 0, 0, canvas.width, srcH);
 
-        const pageImgData = pageCanvas.toDataURL('image/jpeg', 0.92);
+        const pageImgData = pageCanvas.toDataURL('image/jpeg', pdfQuality);
         doc.addImage(pageImgData, 'JPEG', margin, margin, contentW, drawH);
       }
 
       doc.save(`newsforge-${Date.now()}.pdf`);
     } catch (err) {
       console.error('NewsForge PDF export error:', err);
+      this.showToast('PDF export failed');
+    } finally {
+      clone?.remove();
+      btn.classList.remove('nf-loading');
     }
-
-    btn.classList.remove('nf-loading');
   },
 
   escapeHtml(text) {

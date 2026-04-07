@@ -245,7 +245,7 @@
     floatIcon = null;
   }
 
-  function openReader(options) {
+  async function openReader(options) {
     const autoTranslate = options?.autoTranslate || false;
     console.log('[NewsForge] openReader called, active:', ReaderRenderer.active);
     if (ReaderRenderer.active) return;
@@ -290,10 +290,8 @@
 
     if (floatIcon) floatIcon.classList.add('nf-hidden');
 
-    // Save the original onClose to chain cleanup
     ReaderRenderer.onClose = () => {
       if (floatIcon) floatIcon.classList.remove('nf-hidden');
-      // Disconnect overlay guard when reader closes
       if (window._nfOverlayGuard) {
         window._nfOverlayGuard.disconnect();
         window._nfOverlayGuard = null;
@@ -301,6 +299,9 @@
     };
 
     try {
+      // _loadTheme() returns a Promise — await it before render() to avoid FOUC
+      await ReaderRenderer._loadTheme();
+
       ReaderRenderer.render({
         title: currentAdapter.getTitle(),
         standfirst: currentAdapter.getStandfirst(),
@@ -323,6 +324,8 @@
       return;
     }
 
+    // article_opened is sent by ReaderRenderer.render() — no duplicate here
+
     // Guard: re-append overlay if page scripts remove it
     if (!window._nfOverlayGuard) {
       window._nfOverlayGuard = new MutationObserver(() => {
@@ -339,12 +342,16 @@
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === 'open_reader') {
       syncAdapterToCurrentURL(true);
-      openReader();
+      openReader().catch(err => {
+        console.error('[NewsForge] openReader unhandled error:', err);
+      });
       sendResponse({ ok: true });
     }
     if (msg.type === 'open_reader_translate') {
       syncAdapterToCurrentURL(true);
-      openReader({ autoTranslate: true });
+      openReader({ autoTranslate: true }).catch(err => {
+        console.error('[NewsForge] openReader unhandled error:', err);
+      });
       sendResponse({ ok: true });
     }
     if (msg.type === 'ping') {

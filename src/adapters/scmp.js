@@ -4,6 +4,7 @@ class SCMPAdapter extends BaseAdapter {
     super();
     this.name = 'scmp';
     this.hostPatterns = ['scmp.com'];
+    this._leafTextBlockCache = new WeakMap();
   }
 
   isArticlePage() {
@@ -309,6 +310,13 @@ class SCMPAdapter extends BaseAdapter {
 
   _isLeafTextBlock(el) {
     if (!el) return false;
+    if (this._leafTextBlockCache.has(el)) return this._leafTextBlockCache.get(el);
+    const result = this._computeIsLeafTextBlock(el);
+    this._leafTextBlockCache.set(el, result);
+    return result;
+  }
+
+  _computeIsLeafTextBlock(el) {
     const tag = el.tagName.toLowerCase();
     if (tag !== 'div') return false;
 
@@ -414,6 +422,8 @@ class SCMPAdapter extends BaseAdapter {
   }
 
   getParagraphs() {
+    // Clear memoization cache — DOM may have changed since last extraction
+    this._leafTextBlockCache = new WeakMap();
     const url = this.getURL();
     const isPlusPage = /\/plus\//i.test(url) || /[?&]display=plus\b/i.test(url);
     const standfirst = this.getStandfirst();
