@@ -6,6 +6,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const exportImageFormatSelect = document.getElementById('exportImageFormat');
   const exportQualitySelect = document.getElementById('exportQuality');
   const exportQualityField = document.getElementById('exportQualityField');
+  const longArticleImageExportSelect = document.getElementById('longArticleImageExport');
   const providerConfig = document.getElementById('providerConfig');
   const activeSummaryLine = document.getElementById('activeSummaryLine');
   const btnTestTranslate = document.getElementById('btnTestTranslate');
@@ -418,7 +419,8 @@ document.addEventListener('DOMContentLoaded', () => {
       targetLang: draft.targetLang,
       readerTheme: readerThemeSelect ? readerThemeSelect.value : 'default',
       exportImageFormat: exportImageFormatSelect ? exportImageFormatSelect.value : 'jpeg',
-      exportQuality: exportQualitySelect ? exportQualitySelect.value : 'balanced'
+      exportQuality: exportQualitySelect ? exportQualitySelect.value : 'balanced',
+      longArticleImageExport: longArticleImageExportSelect ? longArticleImageExportSelect.value : 'tiles'
     };
 
     if (info.type !== 'free') {
@@ -458,13 +460,16 @@ document.addEventListener('DOMContentLoaded', () => {
     if (readerThemeSelect) readerThemeSelect.value = baseSettings.readerTheme || 'default';
     if (exportImageFormatSelect) exportImageFormatSelect.value = baseSettings.exportImageFormat || 'jpeg';
     if (exportQualitySelect) exportQualitySelect.value = baseSettings.exportQuality || 'balanced';
+    if (longArticleImageExportSelect) {
+      longArticleImageExportSelect.value = baseSettings.longArticleImageExport === 'svg' ? 'svg' : 'tiles';
+    }
     updateExportQualityVisibility();
     return loadAndRenderConfig(currentProvider);
   }
 
   function refreshSettingsFromStorage() {
     return new Promise((resolve) => {
-      chrome.storage.local.get(['translationProvider', 'targetLang', 'readerTheme', 'exportImageFormat', 'exportQuality'], (baseSettings) => {
+      chrome.storage.local.get(['translationProvider', 'targetLang', 'readerTheme', 'exportImageFormat', 'exportQuality', 'longArticleImageExport'], (baseSettings) => {
         applyBaseSettings(baseSettings || {}).then(() => {
           resolve(baseSettings || {});
         });
@@ -486,6 +491,7 @@ document.addEventListener('DOMContentLoaded', () => {
     'readerTheme',
     'exportImageFormat',
     'exportQuality',
+    'longArticleImageExport',
     'google_apiKey',
     'microsoft_apiKey',
     'openai_apiKey',

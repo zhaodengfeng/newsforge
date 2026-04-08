@@ -9,7 +9,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const historyList = document.getElementById('historyList');
 
   if (issueVersion) {
-    issueVersion.textContent = `v${chrome.runtime.getManifest().version}`;
+    const manifest = chrome.runtime.getManifest();
+    issueVersion.textContent = `v${manifest.version_name || manifest.version}`;
   }
 
   const contentScript = chrome.runtime.getManifest().content_scripts?.[0] || null;
@@ -27,7 +28,8 @@ document.addEventListener('DOMContentLoaded', () => {
         'nyt.com',
         'ft.com',
         'economist.com',
-        'scmp.com'
+        'scmp.com',
+        'newyorker.com'
       ].some(domain => host === domain || host.endsWith(`.${domain}`));
     } catch (e) {
       return false;

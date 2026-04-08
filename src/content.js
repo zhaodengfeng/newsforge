@@ -22,7 +22,8 @@
         new NYTimesAdapter(),
         new FTAdapter(),
         new EconomistAdapter(),
-        new SCMPAdapter()
+        new SCMPAdapter(),
+        new NewYorkerAdapter()
       ];
       console.log('[NewsForge] Adapters created:', adapters.map(a => a?.name || 'UNDEFINED'));
       return true;

@@ -20,6 +20,7 @@ NewsForge is a Chrome extension for clean article reading, inline translation, a
 - The Economist
 - South China Morning Post
 - SCMP Plus / DAILY PULSE
+- The New Yorker
 
 ## Highlights
 
@@ -84,6 +85,68 @@ Additional behavior:
 
 ## Recent Updates
 
+### v26.4.11b10
+
+- Added a Reader & Export setting for long-article image export: multiple readable images or one SVG file
+- Optimized the SVG path by embedding JPEG slices and removing duplicate SVG image attributes
+- Updated package/version naming for the `26.4.11b10` beta line
+
+### v26.4.11b9
+
+- Changed oversized screenshot export to readable multi-image output in the selected format instead of unreadable downsampled single images
+- Uses the article title as export filenames after removing filename-invalid characters
+- Adds a five-digit random suffix to repeated export filenames within the same extension session
+- Updated package/version naming for the `26.4.11b9` beta line
+
+### v26.4.11b8
+
+- Long-article screenshot export now tries to keep the selected raster format such as `JPEG` by downsampling into one safe-size image
+- Keeps the stitched SVG fallback only when the browser rejects an oversized raster canvas
+- Improved PDF pagination by cutting at text line boundaries and before image blocks, with PDF-specific image height limits to reduce page-boundary clipping
+- Updated package/version naming for the `26.4.11b8` beta line
+
+### v26.4.11b7
+
+- Inlined remote article images before screenshot/PDF export so cross-origin media can render in captured output
+- Changed oversized long-article screenshot export to one stitched SVG image instead of many separate image files
+- Reduced PDF export stalls by using a lower PDF render scale, asynchronous JPEG encoding, and per-page progress updates
+- Updated package/version naming for the `26.4.11b7` beta line
+
+### v26.4.11b6
+
+- Added local translation caching keyed by article, target language, provider, effective model/endpoint, context, and source text
+- Reuses cached paragraph translations across repeated reader opens to avoid wasting API tokens during debugging
+- Updated package/version naming for the `26.4.11b6` beta line
+
+### v26.4.11b5
+
+- Reworked image and PDF export to render long articles in safe chunks instead of one oversized canvas
+- Fixed PDF export black pages by flattening transparent canvas slices onto the reader background before JPEG encoding
+- Updated package/version naming for the `26.4.11b5` beta line
+
+### v26.4.11b4
+
+- Fixed The New Yorker drop-cap paragraphs being mistaken for ad blocks because their `lead-...` class contained `ad-`
+- Updated package/version naming for the `26.4.11b4` beta line
+
+### v26.4.11b3
+
+- Improved The New Yorker extraction to traverse the full article chunk stream instead of cutting at inline modules
+- Restored inline New Yorker images while continuing to skip embedded video recommendations and cartoon UI chrome
+- Avoided CORS-blocked rendering for New Yorker media images in reader mode
+- Updated package/version naming for the `26.4.11b3` beta line
+
+### v26.4.11b2
+
+- Fixed The New Yorker reader extraction by preserving article paragraphs marked as paywall content
+- Filtered embedded New Yorker cartoon and video modules from article body output
+- Updated package/version naming for the `26.4.11b2` beta line
+
+### v26.4.11b1
+
+- Added beta support for The New Yorker article pages
+- Updated package/version naming for the `26.4.11b1` beta line
+
 ### v26.4.10
 
 - Improved SCMP extraction so inline topic prompts and video embeds are skipped without cutting off following article paragraphs
@@ -104,12 +167,12 @@ Install from the Chrome Web Store:
 
 ### Manual install
 
-1. Download the latest `newsforge-v26.4.10.zip` from the GitHub release page.
+1. Download the latest `newsforge-v26.4.11b10.zip` package.
 2. Unzip the package.
 3. Open `chrome://extensions`.
 4. Enable `Developer mode`.
 5. Click `Load unpacked`.
-6. Select the unzipped `newsforge-v26.4.10` folder.
+6. Select the unzipped `newsforge-v26.4.11b10` folder.
 
 ## Development
 
@@ -132,6 +195,7 @@ src/
 │   ├── nytimes.js
 │   ├── ft.js
 │   ├── economist.js
+│   ├── newyorker.js
 │   └── scmp.js
 ├── reader/
 │   └── renderer.js
@@ -146,7 +210,7 @@ To work locally:
 
 1. Make changes under `src/`.
 2. Load the `src` folder as an unpacked extension during development.
-3. For release packaging, zip the built extension folder as `newsforge-v26.4.10.zip`.
+3. For release packaging, zip the built extension folder as `newsforge-v26.4.11b10.zip`.
 
 ## Privacy
 

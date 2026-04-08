@@ -70,6 +70,11 @@ const LLM_FIRST_CHUNK_ITEMS = 3;
 const LLM_FIRST_CHUNK_CHARS = 2200;
 const LLM_MAX_CHUNK_ITEMS = 5;
 const LLM_MAX_CHUNK_CHARS = 4200;
+const EXPORT_CANVAS_SCALE = 2;
+const EXPORT_PDF_CANVAS_SCALE = 1.25;
+const EXPORT_MAX_CANVAS_SIDE = 24000;
+const EXPORT_IMAGE_INLINE_CONCURRENCY = 3;
+const EXPORT_SVG_TILE_MIME = 'image/jpeg';
 
 const ReaderRenderer = {
   active: false,
@@ -82,6 +87,8 @@ const ReaderRenderer = {
   _sessionId: 0,
   _translationRunId: 0,
   _currentTheme: 'default',
+  _exportImageDataUrlCache: new Map(),
+  _exportFilenameSet: new Set(),
 
   // Load saved theme from storage — populates in-memory cache.
   // Returns a Promise so callers must await it before render().
@@ -118,12 +125,13 @@ const ReaderRenderer = {
 
   _loadExportSettings() {
     return new Promise((resolve) => {
-      chrome.storage.local.get(['exportImageFormat', 'exportQuality'], (data) => {
+      chrome.storage.local.get(['exportImageFormat', 'exportQuality', 'longArticleImageExport'], (data) => {
         const formatKey = EXPORT_IMAGE_FORMATS[data.exportImageFormat] ? data.exportImageFormat : 'jpeg';
         const qualityKey = EXPORT_QUALITY_PRESETS[data.exportQuality] ? data.exportQuality : 'balanced';
         resolve({
           imageFormat: EXPORT_IMAGE_FORMATS[formatKey],
           quality: EXPORT_QUALITY_PRESETS[qualityKey],
+          longArticleImageExport: data.longArticleImageExport === 'svg' ? 'svg' : 'tiles',
         });
       });
     });
@@ -215,7 +223,7 @@ const ReaderRenderer = {
         ` : ''}
         ${article.featuredImage ? `
           <figure class="nf-featured-image">
-            <img src="${this.escapeHtml(article.featuredImage)}" alt="" loading="lazy" crossorigin="anonymous" />
+            <img ${this.imageAttributes(article.featuredImage)} />
           </figure>
         ` : ''}
         <div class="nf-body" id="nf-body">
@@ -234,10 +242,16 @@ const ReaderRenderer = {
     });
   },
 
+  imageAttributes(src, alt = '') {
+    const skipCors = /media\.newyorker\.com/i.test(src || '');
+    const corsAttr = skipCors ? '' : ' crossorigin="anonymous"';
+    return `src="${this.escapeHtml(src || '')}" alt="${this.escapeHtml(alt || '')}" loading="lazy" decoding="async"${corsAttr}`;
+  },
+
   renderParagraph(p) {
     if (p.type === 'image') {
       return `<figure class="nf-article-image">
-        <img src="${this.escapeHtml(p.src)}" alt="" loading="lazy" crossorigin="anonymous" />
+        <img ${this.imageAttributes(p.src)} />
         ${p.caption ? `<figcaption>${this.escapeHtml(p.caption)}</figcaption>` : ''}
       </figure>`;
     }
@@ -293,6 +307,7 @@ const ReaderRenderer = {
     if (this._escHandler) {
       document.removeEventListener('keydown', this._escHandler);
     }
+    this._exportImageDataUrlCache?.clear();
     if (typeof this.onClose === 'function') {
       this.onClose();
     }
@@ -365,6 +380,33 @@ const ReaderRenderer = {
     ].filter(Boolean).join('\n').slice(0, 2200);
   },
 
+  _hashForCache(text = '') {
+    let hash = 2166136261;
+    const input = String(text);
+    for (let i = 0; i < input.length; i++) {
+      hash ^= input.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(16).padStart(8, '0');
+  },
+
+  buildTranslationCacheScope() {
+    const article = this.article || {};
+    const paragraphs = Array.isArray(article.paragraphs) ? article.paragraphs : [];
+    const articleText = [
+      article.title || '',
+      article.standfirst || '',
+      ...paragraphs
+        .filter(p => p && p.type !== 'image' && p.text)
+        .map(p => p.text)
+    ].join('\n');
+
+    return {
+      articleUrl: String(article.url || '').split('#')[0].split('?')[0],
+      articleHash: this._hashForCache(articleText)
+    };
+  },
+
   isPromptAwareTranslationProvider(provider) {
     return PROMPT_AWARE_TRANSLATION_PROVIDERS.has(provider);
   },
@@ -411,7 +453,7 @@ const ReaderRenderer = {
     return texts.some((text, idx) => String(text || '').trim() && !String(translations[idx] || '').trim());
   },
 
-  async requestTranslationsWithFallback({ texts, targetLang, contentType, context, provider, isStale }) {
+  async requestTranslationsWithFallback({ texts, targetLang, contentType, context, provider, cacheScope, isStale }) {
     const response = await chrome.runtime.sendMessage({
       type: 'translate',
       data: {
@@ -419,7 +461,8 @@ const ReaderRenderer = {
         from: 'en',
         to: targetLang,
         contentType,
-        context
+        context,
+        cacheScope
       }
     });
 
@@ -439,6 +482,7 @@ const ReaderRenderer = {
         contentType,
         context,
         provider,
+        cacheScope,
         isStale
       });
       if (isStale() || !left) return null;
@@ -449,6 +493,7 @@ const ReaderRenderer = {
         contentType,
         context,
         provider,
+        cacheScope,
         isStale
       });
       if (isStale() || !right) return null;
@@ -553,6 +598,7 @@ const ReaderRenderer = {
     const mode = this.getTranslateMode();
     const titleEl = overlay.querySelector('.nf-title');
     const translationContext = this.buildTranslationContext();
+    const translationCacheScope = this.buildTranslationCacheScope();
 
     try {
       const settings = await new Promise(resolve =>
@@ -620,6 +666,7 @@ const ReaderRenderer = {
           contentType: 'headline',
           context: translationContext,
           provider: translationProvider,
+          cacheScope: translationCacheScope,
           isStale
         });
         if (isStale()) return;
@@ -642,6 +689,7 @@ const ReaderRenderer = {
           contentType: 'body',
           context: translationContext,
           provider: translationProvider,
+          cacheScope: translationCacheScope,
           isStale
         });
 
@@ -796,10 +844,397 @@ const ReaderRenderer = {
     return clone;
   },
 
+  _getExportSize(clone) {
+    const rect = clone.getBoundingClientRect();
+    return {
+      width: Math.ceil(Math.max(clone.scrollWidth || 0, clone.offsetWidth || 0, rect.width || 0)),
+      height: Math.ceil(Math.max(clone.scrollHeight || 0, clone.offsetHeight || 0, rect.height || 0))
+    };
+  },
+
+  _collectExportLineBreaks(clone, totalHeight, rootTop) {
+    const candidates = [];
+    clone.querySelectorAll('.nf-title, .nf-standfirst, .nf-heading, .nf-paragraph, .nf-source-url').forEach(el => {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      Array.from(range.getClientRects()).forEach(rect => {
+        if (rect.width < 2 || rect.height < 2) return;
+        const y = Math.ceil(rect.bottom - rootTop + 3);
+        if (y > 0 && y < totalHeight) candidates.push(y);
+      });
+      range.detach?.();
+    });
+    return candidates;
+  },
+
+  _preparePdfCloneLayout(clone, pageCssHeight, theme) {
+    const maxImageHeight = Math.max(360, Math.floor(pageCssHeight * 0.72));
+    clone.querySelectorAll('.nf-featured-image, .nf-article-image, .nf-heading').forEach(el => {
+      el.style.breakInside = 'avoid';
+      el.style.pageBreakInside = 'avoid';
+    });
+    clone.querySelectorAll('.nf-featured-image img, .nf-article-image img').forEach(img => {
+      img.style.maxHeight = `${maxImageHeight}px`;
+      img.style.width = '100%';
+      img.style.objectFit = 'contain';
+      img.style.background = theme.bg;
+    });
+  },
+
+  _calculateExportCuts(clone, pageCssHeight, totalHeight, options = {}) {
+    const cuts = [0];
+    const rootTop = clone.getBoundingClientRect().top;
+    const breakCandidates = Array.from(clone.querySelectorAll('.nf-title, .nf-standfirst, .nf-meta, .nf-featured-image, .nf-heading, .nf-paragraph, .nf-article-image, .nf-source-url'))
+      .map(el => Math.ceil(el.getBoundingClientRect().bottom - rootTop))
+      .filter(y => y > 0 && y < totalHeight);
+
+    if (options.includeLineBreaks) {
+      breakCandidates.push(...this._collectExportLineBreaks(clone, totalHeight, rootTop));
+      clone.querySelectorAll('.nf-featured-image, .nf-article-image').forEach(el => {
+        const y = Math.floor(el.getBoundingClientRect().top - rootTop - 4);
+        if (y > 0 && y < totalHeight) breakCandidates.push(y);
+      });
+    }
+
+    breakCandidates.sort((a, b) => a - b);
+
+    let lastCut = 0;
+    const minPageFillRatio = options.minPageFillRatio || 0.55;
+    while (lastCut + pageCssHeight < totalHeight) {
+      const target = lastCut + pageCssHeight;
+      const minSafe = lastCut + Math.floor(pageCssHeight * minPageFillRatio);
+      const safeCut = breakCandidates.filter(y => y > minSafe && y <= target).pop();
+      const nextCut = safeCut || target;
+      const boundedCut = Math.min(Math.max(Math.floor(nextCut), lastCut + 120), totalHeight);
+      if (boundedCut <= lastCut || boundedCut >= totalHeight) break;
+      cuts.push(boundedCut);
+      lastCut = boundedCut;
+    }
+
+    if (cuts[cuts.length - 1] !== totalHeight) {
+      cuts.push(totalHeight);
+    }
+    return cuts;
+  },
+
+  _setButtonLabel(btn, text) {
+    const span = btn?.querySelector('span');
+    if (!span || !text) return;
+    span.textContent = text;
+  },
+
+  _nextFrame() {
+    return new Promise(resolve => requestAnimationFrame(() => resolve()));
+  },
+
+  async _mapLimit(items, limit, worker) {
+    const queue = Array.from(items || []);
+    const workers = Array.from({ length: Math.min(limit, queue.length) }, async () => {
+      while (queue.length) {
+        const item = queue.shift();
+        await worker(item);
+      }
+    });
+    await Promise.all(workers);
+  },
+
+  _normalizeImageUrl(url) {
+    try {
+      const absolute = new URL(String(url || ''), location.href);
+      if (!/^https?:$/.test(absolute.protocol)) return '';
+      return absolute.href;
+    } catch {
+      return '';
+    }
+  },
+
+  _fetchExportImageDataUrl(url) {
+    const normalized = this._normalizeImageUrl(url);
+    if (!normalized) return Promise.resolve('');
+    if (this._exportImageDataUrlCache?.has(normalized)) {
+      return Promise.resolve(this._exportImageDataUrlCache.get(normalized));
+    }
+
+    return new Promise(resolve => {
+      chrome.runtime.sendMessage({
+        type: 'fetch_export_image',
+        data: { url: normalized }
+      }, response => {
+        if (chrome.runtime.lastError || !response?.dataUrl) {
+          resolve('');
+          return;
+        }
+        if (this._exportImageDataUrlCache) {
+          this._exportImageDataUrlCache.set(normalized, response.dataUrl);
+          if (this._exportImageDataUrlCache.size > 40) {
+            this._exportImageDataUrlCache.delete(this._exportImageDataUrlCache.keys().next().value);
+          }
+        }
+        resolve(response.dataUrl);
+      });
+    });
+  },
+
+  async _dataUrlToObjectUrl(dataUrl) {
+    const blob = await fetch(dataUrl).then(resp => resp.blob());
+    return URL.createObjectURL(blob);
+  },
+
+  _revokeExportCloneResources(clone) {
+    (clone?._newsforgeExportObjectUrls || []).forEach(url => {
+      try {
+        URL.revokeObjectURL(url);
+      } catch {
+        // Best effort cleanup only.
+      }
+    });
+    if (clone) clone._newsforgeExportObjectUrls = [];
+  },
+
+  async _prepareExportCloneImages(clone, onProgress) {
+    const images = Array.from(clone?.querySelectorAll?.('img') || []);
+    if (!images.length) return;
+
+    let completed = 0;
+    await this._mapLimit(images, EXPORT_IMAGE_INLINE_CONCURRENCY, async img => {
+      try {
+        img.setAttribute('loading', 'eager');
+        img.setAttribute('decoding', 'sync');
+        img.removeAttribute('srcset');
+        img.removeAttribute('sizes');
+
+        const src = this._normalizeImageUrl(img.currentSrc || img.getAttribute('src'));
+        if (!src) return;
+
+        const dataUrl = await this._fetchExportImageDataUrl(src);
+        if (!dataUrl) return;
+
+        const objectUrl = await this._dataUrlToObjectUrl(dataUrl);
+        clone._newsforgeExportObjectUrls = clone._newsforgeExportObjectUrls || [];
+        clone._newsforgeExportObjectUrls.push(objectUrl);
+        img.src = objectUrl;
+      } catch (error) {
+        console.warn('[NewsForge] Export image inline failed:', error?.message || error);
+      } finally {
+        completed++;
+        onProgress?.(completed, images.length);
+      }
+    });
+  },
+
+  _waitForExportImages(clone) {
+    const images = Array.from(clone?.querySelectorAll?.('img') || []);
+    const waits = images.map(img => {
+      if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+      return new Promise(resolve => {
+        let done = false;
+        const finish = () => {
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
+          img.onload = null;
+          img.onerror = null;
+          resolve();
+        };
+        const timer = setTimeout(finish, 12000);
+        img.onload = finish;
+        img.onerror = finish;
+      });
+    });
+    return Promise.all(waits);
+  },
+
+  async _prepareExportClone(clone, btn, labelPrefix = 'Images') {
+    this._setButtonLabel(btn, 'Preparing images...');
+    await this._prepareExportCloneImages(clone, (done, total) => {
+      this._setButtonLabel(btn, `${labelPrefix} ${done}/${total}`);
+    });
+    await this._waitForExportImages(clone);
+    await this._nextFrame();
+  },
+
+  async _renderExportCanvas(clone, theme, options = {}) {
+    const size = this._getExportSize(clone);
+    const width = Math.max(1, Math.ceil(options.width || size.width));
+    const height = Math.max(1, Math.ceil(options.height || size.height));
+    const y = Math.max(0, Math.floor(options.y || 0));
+    return html2canvas(clone, {
+      backgroundColor: theme.bg,
+      scale: options.scale || EXPORT_CANVAS_SCALE,
+      useCORS: true,
+      allowTaint: false,
+      imageTimeout: 10000,
+      logging: false,
+      width,
+      height,
+      x: 0,
+      y,
+      scrollX: 0,
+      scrollY: 0,
+      windowWidth: width,
+      windowHeight: height
+    });
+  },
+
+  _flattenCanvas(canvas, backgroundColor) {
+    const flat = document.createElement('canvas');
+    flat.width = canvas.width;
+    flat.height = canvas.height;
+    const ctx = flat.getContext('2d');
+    ctx.fillStyle = backgroundColor;
+    ctx.fillRect(0, 0, flat.width, flat.height);
+    ctx.drawImage(canvas, 0, 0);
+    return flat;
+  },
+
+  _canvasToBlob(canvas, mime, quality) {
+    return new Promise(resolve => {
+      canvas.toBlob(resolve, mime, quality);
+    });
+  },
+
+  _blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error || new Error('Failed to read export image'));
+      reader.readAsDataURL(blob);
+    });
+  },
+
+  async _canvasToDataUrl(canvas, mime, quality) {
+    const blob = await this._canvasToBlob(canvas, mime, quality);
+    if (!blob) throw new Error('Image export failed');
+    return this._blobToDataUrl(blob);
+  },
+
+  _downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  },
+
+  _sanitizeFilenamePart(text = '') {
+    const cleaned = String(text || '')
+      .normalize('NFKC')
+      .replace(/[\x00-\x1f\x7f<>:"/\\|?*]/g, '')
+      .replace(/\s+/g, ' ')
+      .replace(/^[.\s]+|[.\s]+$/g, '')
+      .slice(0, 120)
+      .trim();
+    return cleaned || 'newsforge';
+  },
+
+  _randomFilenameSuffix() {
+    return String(Math.floor(10000 + Math.random() * 90000));
+  },
+
+  _buildExportFilename(stem, ext, part = null, total = null) {
+    if (part == null || total == null || total <= 1) {
+      return `${stem}.${ext}`;
+    }
+    return `${stem}-${String(part).padStart(2, '0')}-of-${String(total).padStart(2, '0')}.${ext}`;
+  },
+
+  _reserveExportFilenameStem(ext, totalParts = 1) {
+    const base = this._sanitizeFilenamePart(this.article?.title || document.title || 'newsforge');
+    const buildNames = (stem) => {
+      if (totalParts <= 1) return [this._buildExportFilename(stem, ext)];
+      return Array.from({ length: totalParts }, (_, idx) => (
+        this._buildExportFilename(stem, ext, idx + 1, totalParts)
+      ));
+    };
+
+    let stem = base;
+    let names = buildNames(stem);
+    while (names.some(name => this._exportFilenameSet.has(name))) {
+      stem = `${base}-${this._randomFilenameSuffix()}`;
+      names = buildNames(stem);
+    }
+    names.forEach(name => this._exportFilenameSet.add(name));
+    return stem;
+  },
+
+  _escapeXmlAttr(value) {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  },
+
+  _buildStitchedSvg({ tiles, background }) {
+    const width = Math.max(...tiles.map(tile => tile.width));
+    const height = tiles.reduce((sum, tile) => sum + tile.height, 0);
+    let y = 0;
+    const images = tiles.map(tile => {
+      const currentY = y;
+      y += tile.height;
+      return `<image href="${this._escapeXmlAttr(tile.dataUrl)}" x="0" y="${currentY}" width="${tile.width}" height="${tile.height}" preserveAspectRatio="none"/>`;
+    }).join('\n');
+
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+<rect width="100%" height="100%" fill="${this._escapeXmlAttr(background)}"/>
+${images}
+</svg>`;
+  },
+
+  _releaseCanvas(canvas) {
+    if (!canvas) return;
+    canvas.width = 0;
+    canvas.height = 0;
+  },
+
+  async _exportLongScreenshotAsTiles({ clone, theme, size, mime, ext, quality, btn, cuts }) {
+    const total = cuts.length - 1;
+    const filenameStem = this._reserveExportFilenameStem(ext, total);
+    for (let i = 0; i < cuts.length - 1; i++) {
+      const y = cuts[i];
+      const height = cuts[i + 1] - y;
+      this._setButtonLabel(btn, `Exporting ${i + 1}/${total}`);
+      const canvas = await this._renderExportCanvas(clone, theme, { width: size.width, height, y });
+      const flat = this._flattenCanvas(canvas, theme.bg);
+      const blob = await this._canvasToBlob(flat, mime, quality);
+      if (!blob) throw new Error('Screenshot export failed');
+      this._downloadBlob(blob, this._buildExportFilename(filenameStem, ext, i + 1, total));
+      this._releaseCanvas(canvas);
+      this._releaseCanvas(flat);
+      await this._nextFrame();
+    }
+    this.showToast(`Long article exported as ${total} readable ${ext.toUpperCase()} images`);
+  },
+
+  async _exportLongScreenshotAsSvg({ clone, theme, size, quality, btn, cuts }) {
+    const total = cuts.length - 1;
+    const filenameStem = this._reserveExportFilenameStem('svg');
+    const tiles = [];
+    for (let i = 0; i < cuts.length - 1; i++) {
+      const y = cuts[i];
+      const height = cuts[i + 1] - y;
+      this._setButtonLabel(btn, `Building SVG ${i + 1}/${total}`);
+      const canvas = await this._renderExportCanvas(clone, theme, { width: size.width, height, y });
+      const flat = this._flattenCanvas(canvas, theme.bg);
+      const dataUrl = await this._canvasToDataUrl(flat, EXPORT_SVG_TILE_MIME, quality);
+      tiles.push({ dataUrl, width: flat.width, height: flat.height });
+      this._releaseCanvas(canvas);
+      this._releaseCanvas(flat);
+      await this._nextFrame();
+    }
+    const svg = this._buildStitchedSvg({ tiles, background: theme.bg });
+    const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+    this._downloadBlob(blob, this._buildExportFilename(filenameStem, 'svg'));
+    this.showToast(`Long article exported as one SVG (${total} JPEG slices)`);
+  },
+
   async takeScreenshot() {
     if (typeof html2canvas === 'undefined' || !this.overlay) return;
 
     const btn = this.overlay.querySelector('.nf-btn-screenshot');
+    const originalLabel = btn?.querySelector('span')?.textContent || 'Screenshot';
     btn.classList.add('nf-loading');
     const mode = this.getTranslateMode();
     const themeKey = this._getCurrentThemeKey();
@@ -811,47 +1246,67 @@ const ReaderRenderer = {
       if (!clone) throw new Error('No content to capture');
 
       document.body.appendChild(clone);
-
-      const canvas = await html2canvas(clone, {
-        backgroundColor: theme.bg,
-        scale: 2,
-        useCORS: true,
-        allowTaint: true,
-        logging: false,
-      });
+      await this._prepareExportClone(clone, btn, 'Images');
 
       const exportSettings = await this._loadExportSettings();
       const { mime, ext } = exportSettings.imageFormat;
       const quality = mime === 'image/png' ? undefined : exportSettings.quality.screenshotQuality;
+      const svgQuality = exportSettings.quality.screenshotQuality;
+      const size = this._getExportSize(clone);
+      const maxTileCssHeight = Math.floor(EXPORT_MAX_CANVAS_SIDE / EXPORT_CANVAS_SCALE);
 
-      canvas.toBlob(blob => {
-        if (!blob) {
-          this.showToast('Screenshot export failed');
-          return;
+      if (size.height <= maxTileCssHeight) {
+        this._setButtonLabel(btn, 'Rendering...');
+        const canvas = await this._renderExportCanvas(clone, theme, { width: size.width, height: size.height });
+        const flat = this._flattenCanvas(canvas, theme.bg);
+        const blob = await this._canvasToBlob(flat, mime, quality);
+        if (!blob) throw new Error('Screenshot export failed');
+        const filenameStem = this._reserveExportFilenameStem(ext);
+        this._downloadBlob(blob, this._buildExportFilename(filenameStem, ext));
+        this._releaseCanvas(canvas);
+        this._releaseCanvas(flat);
+      } else {
+        const cuts = this._calculateExportCuts(clone, maxTileCssHeight, size.height);
+        if (exportSettings.longArticleImageExport === 'svg') {
+          await this._exportLongScreenshotAsSvg({
+            clone,
+            theme,
+            size,
+            quality: svgQuality,
+            btn,
+            cuts
+          });
+        } else {
+          await this._exportLongScreenshotAsTiles({
+            clone,
+            theme,
+            size,
+            mime,
+            ext,
+            quality,
+            btn,
+            cuts
+          });
         }
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `newsforge-${Date.now()}.${ext}`;
-        a.click();
-        URL.revokeObjectURL(url);
-      }, mime, quality);
+      }
     } catch (err) {
       console.error('NewsForge screenshot error:', err);
       this.showToast(err.message || 'Screenshot failed');
     } finally {
+      this._revokeExportCloneResources(clone);
       clone?.remove();
       btn.classList.remove('nf-loading');
+      this._setButtonLabel(btn, originalLabel);
     }
   },
 
-  // PDF 导出：html2canvas → 图片 → PDF，解决 CJK 乱码
-  // 空白检测使用主题自带的 blankThreshold（深色/浅色背景各自调校过）
+  // PDF 导出：按页分片 html2canvas → 图片 → PDF，避免超长文章超过浏览器 canvas 上限。
   async exportPDF() {
     if ((typeof jspdf === 'undefined' && typeof window.jspdf === 'undefined') || !this.overlay) return;
     if (typeof html2canvas === 'undefined') return;
 
     const btn = this.overlay.querySelector('.nf-btn-pdf');
+    const originalLabel = btn?.querySelector('span')?.textContent || 'PDF';
     btn.classList.add('nf-loading');
     let clone = null;
 
@@ -866,14 +1321,7 @@ const ReaderRenderer = {
       if (!clone) throw new Error('No content to export');
 
       document.body.appendChild(clone);
-
-      const canvas = await html2canvas(clone, {
-        backgroundColor: theme.bg,
-        scale: 2,
-        useCORS: true,
-        allowTaint: true,
-        logging: false,
-      });
+      await this._prepareExportClone(clone, btn, 'PDF images');
 
       // Parse theme bg color for blank-detection
       const bgHex = theme.bg; // '#faf8f5' or '#000000'
@@ -885,91 +1333,51 @@ const ReaderRenderer = {
       const pageW = 210, pageH = 297, margin = 10;
       const contentW = pageW - margin * 2;
       const contentH = pageH - margin * 2;
+      let size = this._getExportSize(clone);
+      let pageCssHeight = Math.floor((contentH / contentW) * size.width);
+      this._preparePdfCloneLayout(clone, pageCssHeight, theme);
+      await this._waitForExportImages(clone);
+      await this._nextFrame();
+      size = this._getExportSize(clone);
+      pageCssHeight = Math.floor((contentH / contentW) * size.width);
+      const cuts = this._calculateExportCuts(clone, pageCssHeight, size.height, {
+        includeLineBreaks: true,
+        minPageFillRatio: 0.12
+      });
+      const doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
 
-      const pxPerMm = canvas.width / contentW;
-      const pagePxH = Math.floor(contentH * pxPerMm);
-      const threshold = theme.blankThreshold || 20;
-      const searchSpan = theme.blankSearchSpan || 0.25;
-
-      const imgData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
-
-      // Check if a canvas row is "blank" (matches background color within threshold)
-      // Samples every 8th pixel for performance; if ANY non-background pixel found, row is non-blank
-      const isBlankRow = (y) => {
-        const rowStart = y * canvas.width * 4;
-        for (let x = 0; x < canvas.width * 4; x += 32) { // step = 8 pixels
-          const rPix = imgData.data[rowStart + x];
-          const gPix = imgData.data[rowStart + x + 1];
-          const bPix = imgData.data[rowStart + x + 2];
-          if (Math.abs(rPix - bgR) > threshold ||
-              Math.abs(gPix - bgG) > threshold ||
-              Math.abs(bPix - bgB) > threshold) {
-            return false;
-          }
-        }
-        return true;
-      };
-
-      // Find nearest blank row to targetY (searches upward first, then downward)
-      const findSafeCut = (targetY) => {
-        const searchPx = Math.floor(pagePxH * searchSpan);
-        const minUp = Math.max(0, targetY - searchPx);
-        const maxDown = Math.min(canvas.height - 1, targetY + searchPx);
-
-        for (let y = targetY; y >= minUp; y -= 2) {
-          if (isBlankRow(y)) return y;
-        }
-        for (let y = targetY + 2; y <= maxDown; y += 2) {
-          if (isBlankRow(y)) return y;
-        }
-        return targetY; // no blank found — use exact target
-      };
-
-      const cuts = [0];
-      let lastCut = 0;
-      while (lastCut + pagePxH < canvas.height) {
-        const targetY = lastCut + pagePxH;
-        const safeY = findSafeCut(targetY);
-        // Avoid infinite loop: if safeY lands on or before lastCut, force exact cut
-        if (safeY <= lastCut) {
-          cuts.push(targetY);
-          lastCut = targetY;
-        } else {
-          cuts.push(safeY);
-          lastCut = safeY;
-        }
-      }
-
-      const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-
-      for (let i = 0; i < cuts.length; i++) {
+      for (let i = 0; i < cuts.length - 1; i++) {
+        this._setButtonLabel(btn, `PDF ${i + 1}/${cuts.length - 1}`);
         if (i > 0) doc.addPage();
 
         doc.setFillColor(bgR, bgG, bgB);
         doc.rect(0, 0, pageW, pageH, 'F');
 
         const srcY = cuts[i];
-        const nextY = i + 1 < cuts.length ? cuts[i + 1] : canvas.height;
+        const nextY = cuts[i + 1];
         const srcH = nextY - srcY;
-        const drawH = srcH / pxPerMm;
-
-        const pageCanvas = document.createElement('canvas');
-        pageCanvas.width = canvas.width;
-        pageCanvas.height = srcH;
-        const ctx = pageCanvas.getContext('2d');
-        ctx.drawImage(canvas, 0, srcY, canvas.width, srcH, 0, 0, canvas.width, srcH);
-
-        const pageImgData = pageCanvas.toDataURL('image/jpeg', pdfQuality);
-        doc.addImage(pageImgData, 'JPEG', margin, margin, contentW, drawH);
+        const canvas = await this._renderExportCanvas(clone, theme, { width: size.width, height: srcH, y: srcY, scale: EXPORT_PDF_CANVAS_SCALE });
+        const pageCanvas = this._flattenCanvas(canvas, theme.bg);
+        const drawH = Math.min(contentH, (srcH / size.width) * contentW);
+        const pageImgData = await this._canvasToDataUrl(pageCanvas, 'image/jpeg', pdfQuality);
+        doc.addImage(pageImgData, 'JPEG', margin, margin, contentW, drawH, `page-${i}`, 'FAST');
+        this._releaseCanvas(canvas);
+        this._releaseCanvas(pageCanvas);
+        await this._nextFrame();
       }
 
-      doc.save(`newsforge-${Date.now()}.pdf`);
+      this._setButtonLabel(btn, 'Saving PDF...');
+      await this._nextFrame();
+      const filenameStem = this._reserveExportFilenameStem('pdf');
+      doc.save(this._buildExportFilename(filenameStem, 'pdf'));
     } catch (err) {
       console.error('NewsForge PDF export error:', err);
       this.showToast('PDF export failed');
     } finally {
+      this._revokeExportCloneResources(clone);
       clone?.remove();
       btn.classList.remove('nf-loading');
+      this._setButtonLabel(btn, originalLabel);
     }
   },
 

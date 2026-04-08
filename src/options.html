@@ -904,6 +904,14 @@
                   </select>
                   <div class="field-hint">Affects JPEG/WebP screenshots and PDF image compression. Hidden for PNG because PNG is lossless.</div>
                 </div>
+                <div class="field">
+                  <label class="field-label">Long Article Image Export</label>
+                  <select class="input" id="longArticleImageExport">
+                    <option value="tiles">Multiple readable images (recommended)</option>
+                    <option value="svg">Single SVG file</option>
+                  </select>
+                  <div class="field-hint">Multiple images stay sharp and compact. SVG keeps one file but embeds image slices as base64, so it is usually larger.</div>
+                </div>
               </div>
             </div>
           </div>

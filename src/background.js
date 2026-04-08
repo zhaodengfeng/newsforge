@@ -1,6 +1,12 @@
 // NewsForge Background Service Worker
 importScripts('providers.js');
 
+const TRANSLATION_CACHE_VERSION = 'translation-cache-v1';
+const TRANSLATION_CACHE_KEY = 'translationCache';
+const TRANSLATION_CACHE_MAX_ENTRIES = 1200;
+const EXPORT_IMAGE_FETCH_MAX_BYTES = 15 * 1024 * 1024;
+const EXPORT_IMAGE_FETCH_TIMEOUT_MS = 12000;
+
 // ============================================
 // 安装 & 默认设置
 // ============================================
@@ -15,6 +21,7 @@ chrome.runtime.onInstalled.addListener(() => {
     targetLang: 'zh-CN',
     exportImageFormat: 'jpeg',
     exportQuality: 'balanced',
+    longArticleImageExport: 'tiles',
   };
   chrome.storage.local.get(Object.keys(defaults), (existing) => {
     const toSet = {};
@@ -107,6 +114,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true; // 异步
   }
 
+  if (msg.type === 'fetch_export_image') {
+    fetchExportImage(msg.data).then(sendResponse).catch(err => {
+      sendResponse({ error: err.message || 'Image fetch failed' });
+    });
+    return true; // 异步
+  }
+
   if (msg.type === 'article_opened') {
     chrome.storage.local.get('history', (data) => {
       const history = data.history || [];
@@ -117,10 +131,63 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 });
 
+async function fetchExportImage({ url } = {}) {
+  const parsed = new URL(String(url || ''));
+  if (!/^https?:$/.test(parsed.protocol)) {
+    throw new Error('Unsupported image URL');
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), EXPORT_IMAGE_FETCH_TIMEOUT_MS);
+  let response;
+
+  try {
+    response = await fetch(parsed.href, {
+      credentials: 'omit',
+      cache: 'force-cache',
+      signal: controller.signal
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  if (!response.ok) {
+    throw new Error(`Image fetch failed: ${response.status}`);
+  }
+
+  const contentType = (response.headers.get('content-type') || 'image/jpeg').split(';')[0].trim();
+  if (!contentType.startsWith('image/')) {
+    throw new Error('Fetched URL is not an image');
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  if (arrayBuffer.byteLength > EXPORT_IMAGE_FETCH_MAX_BYTES) {
+    throw new Error('Image is too large for export inlining');
+  }
+
+  return {
+    dataUrl: arrayBufferToDataUrl(arrayBuffer, contentType),
+    bytes: arrayBuffer.byteLength,
+    contentType
+  };
+}
+
+function arrayBufferToDataUrl(arrayBuffer, mime) {
+  const bytes = new Uint8Array(arrayBuffer);
+  const chunkSize = 0x8000;
+  let binary = '';
+
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+  }
+
+  return `data:${mime || 'application/octet-stream'};base64,${btoa(binary)}`;
+}
+
 // ============================================
 // 翻译路由
 // ============================================
-async function handleTranslate({ texts, from, to, providerOverride, configOverride, context, contentType }) {
+async function handleTranslate({ texts, from, to, providerOverride, configOverride, context, contentType, cacheScope }) {
   const settings = await chrome.storage.local.get(['translationProvider', 'targetLang']);
   const provider = providerOverride || settings.translationProvider || 'google';
   const targetLang = to || settings.targetLang || 'zh-CN';
@@ -128,26 +195,182 @@ async function handleTranslate({ texts, from, to, providerOverride, configOverri
   const LANG_NAMES = { 'zh-CN': 'Simplified Chinese', 'zh-TW': 'Traditional Chinese', 'en': 'English', 'ja': 'Japanese', 'ko': 'Korean', 'fr': 'French', 'de': 'German', 'es': 'Spanish', 'ru': 'Russian', 'pt': 'Portuguese', 'it': 'Italian', 'ar': 'Arabic' };
   const langName = LANG_NAMES[targetLang] || targetLang;
   const promptContext = buildPromptContext(context);
+  const providerIdentity = await resolveProviderIdentity(provider, configOverride);
+  const cacheMeta = {
+    provider,
+    targetLang,
+    contentType: contentType || 'body',
+    context: promptContext,
+    providerIdentity,
+    cacheScope: buildCacheScope(cacheScope)
+  };
 
   try {
-    switch (provider) {
-      case 'google':
-        return googleTranslate(safeTexts, targetLang);
-      case 'microsoft':
-        return microsoftTranslate(safeTexts, targetLang);
-      case 'deepl':
-        return deeplTranslate(safeTexts, targetLang, langName, provider, configOverride);
-      case 'claude':
-      case 'custom_claude':
-        return claudeTranslate(safeTexts, targetLang, langName, provider, configOverride, promptContext, contentType);
-      default:
-        return openaiTranslate(safeTexts, targetLang, langName, provider, configOverride, promptContext, contentType);
-    }
+    return translateWithCache({
+      texts: safeTexts,
+      cacheMeta,
+      translateMissing: (missingTexts) => translateProvider({
+        texts: missingTexts,
+        targetLang,
+        langName,
+        provider,
+        configOverride,
+        promptContext,
+        contentType
+      })
+    });
   } catch (error) {
     const wrapped = new Error(formatTranslationError(provider, error));
     wrapped.userMessage = formatTranslationError(provider, error);
     throw wrapped;
   }
+}
+
+async function translateProvider({ texts, targetLang, langName, provider, configOverride, promptContext, contentType }) {
+  switch (provider) {
+    case 'google':
+      return googleTranslate(texts, targetLang);
+    case 'microsoft':
+      return microsoftTranslate(texts, targetLang);
+    case 'deepl':
+      return deeplTranslate(texts, targetLang, langName, provider, configOverride);
+    case 'claude':
+    case 'custom_claude':
+      return claudeTranslate(texts, targetLang, langName, provider, configOverride, promptContext, contentType);
+    default:
+      return openaiTranslate(texts, targetLang, langName, provider, configOverride, promptContext, contentType);
+  }
+}
+
+async function translateWithCache({ texts, cacheMeta, translateMissing }) {
+  if (!texts.length) return { translations: [] };
+  if (!cacheMeta?.cacheScope?.articleHash) {
+    return translateMissing(texts);
+  }
+
+  const now = Date.now();
+  const cache = await readTranslationCache();
+  const translations = new Array(texts.length).fill('');
+  const misses = [];
+  let cacheHits = 0;
+
+  texts.forEach((text, index) => {
+    const original = String(text || '');
+    if (!original.trim()) return;
+    const key = buildTranslationCacheKey(cacheMeta, original);
+    const entry = cache.entries[key];
+    if (entry && typeof entry.text === 'string' && entry.text.trim()) {
+      translations[index] = entry.text;
+      cacheHits++;
+      return;
+    }
+    misses.push({ index, key, text: original });
+  });
+
+  if (misses.length === 0) {
+    return { translations, cacheHits, cacheMisses: 0 };
+  }
+
+  const response = await translateMissing(misses.map(item => item.text));
+  const missingTranslations = Array.isArray(response?.translations) ? response.translations : [];
+
+  misses.forEach((item, idx) => {
+    const translated = missingTranslations[idx] || '';
+    translations[item.index] = translated;
+    if (translated && String(translated).trim()) {
+      cache.entries[item.key] = {
+        text: translated,
+        createdAt: now
+      };
+    }
+  });
+
+  await writeTranslationCache(cache);
+  return { translations, cacheHits, cacheMisses: misses.length };
+}
+
+async function readTranslationCache() {
+  try {
+    const data = await chrome.storage.local.get(TRANSLATION_CACHE_KEY);
+    const cache = data[TRANSLATION_CACHE_KEY];
+    if (!cache || cache.version !== TRANSLATION_CACHE_VERSION || !cache.entries || typeof cache.entries !== 'object') {
+      return { version: TRANSLATION_CACHE_VERSION, entries: {} };
+    }
+    return cache;
+  } catch (error) {
+    return { version: TRANSLATION_CACHE_VERSION, entries: {} };
+  }
+}
+
+async function writeTranslationCache(cache) {
+  try {
+    pruneTranslationCache(cache);
+    await chrome.storage.local.set({ [TRANSLATION_CACHE_KEY]: cache });
+  } catch (error) {
+    console.warn('[NewsForge] Translation cache write skipped:', error?.message || error);
+  }
+}
+
+function pruneTranslationCache(cache) {
+  const entries = Object.entries(cache.entries || {});
+  if (entries.length <= TRANSLATION_CACHE_MAX_ENTRIES) return;
+  entries.sort((a, b) => (b[1]?.createdAt || 0) - (a[1]?.createdAt || 0));
+  cache.entries = Object.fromEntries(entries.slice(0, TRANSLATION_CACHE_MAX_ENTRIES));
+}
+
+function buildCacheScope(cacheScope = {}) {
+  return {
+    articleUrl: typeof cacheScope.articleUrl === 'string' ? cacheScope.articleUrl.slice(0, 500) : '',
+    articleHash: typeof cacheScope.articleHash === 'string' ? cacheScope.articleHash.slice(0, 80) : ''
+  };
+}
+
+async function resolveProviderIdentity(provider, override = {}) {
+  if (provider === 'google' || provider === 'microsoft') {
+    return { model: '', endpoint: '', providerType: PROVIDERS[provider]?.type || '' };
+  }
+  const cfg = await loadProviderConfig(provider, override);
+  return {
+    model: cfg.model || PROVIDERS[provider]?.model || '',
+    endpoint: cfg.endpoint || PROVIDERS[provider]?.endpoint || '',
+    providerType: PROVIDERS[provider]?.type || ''
+  };
+}
+
+function hashForCache(text = '') {
+  let hash = 2166136261;
+  const input = String(text);
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+function stableStringify(value) {
+  if (!value || typeof value !== 'object') return String(value || '');
+  return Object.keys(value)
+    .sort()
+    .map(key => `${key}:${stableStringify(value[key])}`)
+    .join('|');
+}
+
+function buildTranslationCacheKey(meta, text) {
+  const identity = meta.providerIdentity || {};
+  const scope = meta.cacheScope || {};
+  return [
+    TRANSLATION_CACHE_VERSION,
+    meta.provider || '',
+    meta.targetLang || '',
+    identity.providerType || '',
+    identity.model || '',
+    identity.endpoint || '',
+    meta.contentType || '',
+    scope.articleUrl || '',
+    scope.articleHash || '',
+    hashForCache(stableStringify(meta.context || {})),
+    hashForCache(text)
+  ].join('|');
 }
 
 function buildPromptContext(context = {}) {
