@@ -91,6 +91,11 @@ Additional behavior:
 
 ## Recent Updates
 
+### v26.4.11b18
+
+- Filtered Bloomberg rich-media chart subtitles, sources and footnotes from article text extraction
+- Updated package/version naming for the `26.4.11b18` beta line
+
 ### v26.4.11b17
 
 - Filtered Bloomberg inline podcast/audio promos out of article extraction
@@ -213,12 +218,12 @@ Install from the Chrome Web Store:
 
 ### Manual install
 
-1. Download the latest `newsforge-v26.4.11b17.zip` package.
+1. Download the latest `newsforge-v26.4.11b18.zip` package.
 2. Unzip the package.
 3. Open `chrome://extensions`.
 4. Enable `Developer mode`.
 5. Click `Load unpacked`.
-6. Select the unzipped `newsforge-v26.4.11b17` folder.
+6. Select the unzipped `newsforge-v26.4.11b18` folder.
 
 ## Development
 
@@ -256,7 +261,7 @@ To work locally:
 
 1. Make changes under `src/`.
 2. Load the `src` folder as an unpacked extension during development.
-3. For release packaging, zip the built extension folder as `newsforge-v26.4.11b17.zip`.
+3. For release packaging, zip the built extension folder as `newsforge-v26.4.11b18.zip`.
 
 ## Privacy
 

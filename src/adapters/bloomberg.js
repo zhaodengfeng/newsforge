@@ -183,9 +183,74 @@ class BloombergAdapter extends BaseAdapter {
     return this._looksLikePodcastPromoText(el.innerText || el.textContent || '');
   }
 
+  _getStructuredChartTextSet() {
+    if (this._structuredChartTextSet) return this._structuredChartTextSet;
+
+    const texts = new Set();
+    const addText = value => {
+      if (typeof value !== 'string') return;
+      const text = value.replace(/\s+/g, ' ').trim();
+      if (text.length >= 15 && text.length <= 500) texts.add(text);
+    };
+
+    try {
+      const raw = document.getElementById('__NEXT_DATA__')?.textContent || '';
+      if (raw) {
+        const data = JSON.parse(raw);
+        const stack = [data];
+        while (stack.length) {
+          const value = stack.pop();
+          if (!value || typeof value !== 'object') continue;
+          if (Array.isArray(value)) {
+            value.forEach(item => stack.push(item));
+            continue;
+          }
+
+          const creator = String(value.creator || '').toUpperCase();
+          const typename = String(value.__typename || '').toLowerCase();
+          const url = String(value.url || '');
+          if (creator === 'TOASTER' || typename.includes('chart') || /\/toaster\/v\d+\/charts\//i.test(url)) {
+            addText(value.subtitle);
+            addText(value.source);
+            addText(value.footnote);
+          }
+
+          Object.keys(value).forEach(key => stack.push(value[key]));
+        }
+      }
+    } catch (e) {}
+
+    this._structuredChartTextSet = texts;
+    return texts;
+  }
+
+  _isRichMediaChartText(el) {
+    if (!el) return false;
+
+    let node = el;
+    for (let depth = 0; node && depth < 6; depth++, node = node.parentElement) {
+      const tagName = (node.tagName || '').toLowerCase();
+      if (tagName === 'article' || tagName === 'main' || tagName === 'body') break;
+      if (tagName === 'figure' && node.querySelector?.('dvz-ai2html-wrapper')) return true;
+
+      const className = typeof node.className === 'string' ? node.className : '';
+      const markers = [
+        className,
+        node.id,
+        node.getAttribute?.('data-component'),
+        node.getAttribute?.('data-testid'),
+        node.getAttribute?.('aria-label')
+      ].filter(Boolean).join(' ').toLowerCase();
+      if (/(dvz|ai2html|toaster|chart|graphic)/.test(markers)) return true;
+    }
+
+    return false;
+  }
+
   getParagraphs() {
     const paragraphs = [];
     const seen = new Set();
+    const structuredChartTexts = this._getStructuredChartTextSet();
     const featuredSrc = this.getFeaturedImage();
     // Bloomberg 图片模糊匹配：去掉最后一段（尺寸或文件名），保留图片 ID 目录
     let featuredKey = '';
@@ -256,8 +321,11 @@ class BloombergAdapter extends BaseAdapter {
       if (el.closest('figcaption')) continue;
       if (tagName.startsWith('h') && el.closest('figure')) continue;
       const text = (el.innerText || '').trim();
+      const normalizedText = text.replace(/\s+/g, ' ').trim();
       if (text.length < 15) continue;
-      if (seen.has(text)) continue;
+      if (seen.has(normalizedText)) continue;
+      if (structuredChartTexts.has(normalizedText)) continue;
+      if (this._isRichMediaChartText(el)) continue;
       if (/^(Read More|Share this|Most Read|Sign up|Subscribe|More from Bloomberg|Have a confidential|Terms of Service|Photographer:|Updated on|Related:|Also read|In this Article|Sorry,? something went wrong|Check your internet)/.test(text)) continue;
       if (/sorry.*went wrong|check your internet connection|refresh the page/i.test(text)) continue;
       if (/^get the .+ newsletter/i.test(text)) continue;
@@ -271,11 +339,11 @@ class BloombergAdapter extends BaseAdapter {
       if (/^get alerts for\b/i.test(text)) break;
       if (/^sign up for notifications/i.test(text)) break;
 
-      seen.add(text);
+      seen.add(normalizedText);
       paragraphs.push({
         type: tagName.startsWith('h') ? 'heading' : 'text',
         level: tagName.startsWith('h') ? parseInt(tagName[1]) : 0,
-        text
+        text: normalizedText
       });
     }
 
@@ -287,16 +355,19 @@ class BloombergAdapter extends BaseAdapter {
       for (let j = 0; j < allP.length; j++) {
         const el2 = allP[j];
         const text2 = (el2.innerText || '').trim();
+        const normalizedText2 = text2.replace(/\s+/g, ' ').trim();
         if (text2.length < 40) continue;
-        if (seen.has(text2)) continue;
+        if (seen.has(normalizedText2)) continue;
         if (el2.closest('nav, footer, aside')) continue;
         if (this._isNonArticleChrome(el2)) continue;
         if (this._isInlineRelatedModule(el2)) continue;
         if (this._isAudioPodcastPromo(el2)) continue;
-        const t2Lower = text2.toLowerCase();
+        if (structuredChartTexts.has(normalizedText2)) continue;
+        if (this._isRichMediaChartText(el2)) continue;
+        const t2Lower = normalizedText2.toLowerCase();
         if (/^(more from bloomberg|related|recommended|trending|you might|get alerts for)/.test(t2Lower)) break;
-        seen.add(text2);
-        paragraphs.push({ type: 'text', level: 0, text: text2 });
+        seen.add(normalizedText2);
+        paragraphs.push({ type: 'text', level: 0, text: normalizedText2 });
       }
     }
 
