@@ -27,13 +27,16 @@ NewsForge is a Chrome extension for clean article reading, inline translation, a
 - Clean reader mode with article-first layout
 - `NewsForge` and `Classic` reader styles
 - Progressive translation rendering inside the reader
+- Local translation cache to avoid re-translating the same article with the same provider/model settings
 - Screenshot export for translated or original content with `JPEG`, `PNG`, and `WebP` options
-- PDF export with better long-article pagination
+- Long-article image export as multiple readable images or a single SVG file
+- PDF export with long-article pagination, image inlining, and safer page breaks
+- Export filenames use the article title when possible, with invalid filename characters removed
 - Local reading history
 - Encrypted settings backup and restore
 - Task-focused settings tabs with provider config, reader export, and data maintenance separated
 - Built-in test translation for the active on-screen provider settings
-- Cleaner SCMP and Bloomberg article extraction for inline modules and embedded video UI text
+- Cleaner SCMP, Bloomberg, and The New Yorker article extraction for inline modules, embedded media UI text, and long-form article chunks
 - LLM translation batching tuned for faster first results and better name consistency
 
 ## Translation Providers
@@ -66,7 +69,7 @@ The settings page is organized into three task-focused tabs:
 - `Translation`
   Select provider and target language, configure the current provider, and run a test translation in one place
 - `Reader & Export`
-  Choose `NewsForge` or `Classic` reader styling, screenshot format, and export quality
+  Choose `NewsForge` or `Classic` reader styling, screenshot format, export quality, and long-article image export behavior
 - `Data`
   Manage encrypted backups and clear local reading history
 
@@ -81,6 +84,9 @@ Additional behavior:
 - `JPEG` is the default screenshot format for broad app compatibility
 - `Balanced` is the default export quality
 - `PNG` export hides the quality selector because PNG is lossless
+- Long articles can export as multiple sharp image files or as one larger SVG container
+- Screenshots and PDFs inline remote article images before export to reduce cross-origin blank-image failures
+- Repeated export filenames in the same extension session get a five-digit suffix to avoid collisions
 - More readable translation error messages
 
 ## Recent Updates
@@ -218,6 +224,7 @@ NewsForge does not send data to our own servers.
 
 - Settings are stored locally with `chrome.storage.local`
 - Reading history is stored locally
+- Translation cache is stored locally and keyed by article, provider, target language, effective model/endpoint, context, and source text
 - Backup files are encrypted before export and do not include reading history by default
 - Translation requests go directly from the browser to the selected provider
 
