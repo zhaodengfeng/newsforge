@@ -91,6 +91,16 @@ Additional behavior:
 
 ## Recent Updates
 
+### v26.4.11b21
+
+- Kept The Economist World in Brief dek while filtering `less than 1 hour ago` article/audio metadata
+- Updated package/version naming for the `26.4.11b21` beta line
+
+### v26.4.11b20
+
+- Filtered The Economist War Room newsletter promo modules out of World in Brief extraction
+- Updated package/version naming for the `26.4.11b20` beta line
+
 ### v26.4.11b19
 
 - Filtered The Economist Daily Quiz modules out of World in Brief image and text extraction
@@ -223,12 +233,12 @@ Install from the Chrome Web Store:
 
 ### Manual install
 
-1. Download the latest `newsforge-v26.4.11b19.zip` package.
+1. Download the latest `newsforge-v26.4.11b21.zip` package.
 2. Unzip the package.
 3. Open `chrome://extensions`.
 4. Enable `Developer mode`.
 5. Click `Load unpacked`.
-6. Select the unzipped `newsforge-v26.4.11b19` folder.
+6. Select the unzipped `newsforge-v26.4.11b21` folder.
 
 ## Development
 
@@ -266,7 +276,7 @@ To work locally:
 
 1. Make changes under `src/`.
 2. Load the `src` folder as an unpacked extension during development.
-3. For release packaging, zip the built extension folder as `newsforge-v26.4.11b19.zip`.
+3. For release packaging, zip the built extension folder as `newsforge-v26.4.11b21.zip`.
 
 ## Privacy
 

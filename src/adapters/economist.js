@@ -117,6 +117,25 @@ class EconomistAdapter extends BaseAdapter {
     return false;
   }
 
+  _isNewsletterPromoModule(el) {
+    if (!el) return false;
+
+    const promoRe = /stay informed with\b.*\bnewsletter\b|\bwar room newsletter\b.*\bworld-class coverage of defen[cs]e and international security issues/i;
+    let node = el;
+    for (let depth = 0; node && depth < 6; depth++) {
+      const tagName = (node.tagName || '').toLowerCase();
+      if (/^(main|article|body|html)$/.test(tagName)) break;
+
+      const text = (node.innerText || node.textContent || '').replace(/\s+/g, ' ').trim();
+      if (text.length <= 1200 && promoRe.test(text)) return true;
+
+      if (tagName === 'section' && text.length > 1200) break;
+      node = node.parentElement;
+    }
+
+    return false;
+  }
+
   getParagraphs() {
     const paragraphs = [];
     const seen = new Set();
@@ -144,6 +163,7 @@ class EconomistAdapter extends BaseAdapter {
 
       if (el.closest('nav, header, footer, aside, audio, video, [class*="newsletter"], [class*="promo"], [class*="ad-slot"], [class*="ad-container"], [class*="in-article-ad"], [class*="-ad-"], [class*="advert"], [class*="sponsor"], [class*="related"], [class*="most"], [class*="sidebar"]')) continue;
       if (this._isDailyQuizModule(el)) continue;
+      if (this._isNewsletterPromoModule(el)) continue;
 
       const tagName = el.tagName.toLowerCase();
 
@@ -181,10 +201,9 @@ class EconomistAdapter extends BaseAdapter {
       if (/^(sign up|subscribe|newsletter|related|recommended|keep updated|more on this)/i.test(text)) continue;
       if (/^copyright/i.test(text)) continue;
       if (/^\d+\s+(hours?|days?|minutes?)\s+ago$/i.test(text)) continue;
-      if (/^(articles?|audio)\s+(updated|recorded)\s+\d+/i.test(text)) continue;
+      if (/^(articles?|audio)\s+(updated|recorded)\s+(?:less than\s+)?\d+\s+(?:minutes?|hours?|days?)\s+ago\b/i.test(text)) continue;
       if (/^listen to (the )?(briefing|audio|podcast)/i.test(text)) continue;
       if (/^follow (our |the )?latest coverage/i.test(text)) continue;
-      if (/^catch up quickly on the global stories/i.test(text)) continue;
       if (/^sign up to enjoy/i.test(text)) continue;
       if (/^figure of the day/i.test(text) && text.length < 200) continue;
 
