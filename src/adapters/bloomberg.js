@@ -138,6 +138,17 @@ class BloombergAdapter extends BaseAdapter {
     return /^(this is a modal window|beginning of dialog window|end of dialog window|close modal dialog)$/i.test(text);
   }
 
+  _isInlineRelatedModule(el) {
+    if (!el) return false;
+    if (el.closest('[class*="RichtextMedia_articleTable"], [class*="articleTable"], .article-table')) return true;
+
+    const text = (el.innerText || '').replace(/\s+/g, ' ').trim();
+    if (/^read more:\s+\S/i.test(text)) return true;
+    if (/^read more on\b/i.test(text)) return true;
+
+    return false;
+  }
+
   getParagraphs() {
     const paragraphs = [];
     const seen = new Set();
@@ -166,10 +177,10 @@ class BloombergAdapter extends BaseAdapter {
 
       if (el.closest('nav, header, footer, aside, [class*="newsletter"], [class*="promo"], [class*="signup"], [class*="marketing"], [class*="ad-slot"], [class*="in-article-ad"]')) continue;
       if (this._isNonArticleChrome(el)) continue;
+      if (this._isInlineRelatedModule(el)) continue;
       if (el.closest('dvz-ai2html-wrapper')) continue;
 
       if (this._isRelatedLinksTable(el)) {
-        if (paragraphs.length > 0) break;
         continue;
       }
 
@@ -245,6 +256,7 @@ class BloombergAdapter extends BaseAdapter {
         if (seen.has(text2)) continue;
         if (el2.closest('nav, footer, aside')) continue;
         if (this._isNonArticleChrome(el2)) continue;
+        if (this._isInlineRelatedModule(el2)) continue;
         const t2Lower = text2.toLowerCase();
         if (/^(more from bloomberg|related|recommended|trending|you might|get alerts for)/.test(t2Lower)) break;
         seen.add(text2);
