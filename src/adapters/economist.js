@@ -92,6 +92,31 @@ class EconomistAdapter extends BaseAdapter {
     return path;
   }
 
+  _isDailyQuizModule(el) {
+    if (!el) return false;
+
+    const quizInstructionRe = /we will serve you a new question each weekday|your challenge is to give us all five answers|quizespresso@economist\.com/i;
+    let node = el;
+    for (let depth = 0; node && depth < 6; depth++) {
+      const tagName = (node.tagName || '').toLowerCase();
+      if (/^(main|article|body|html)$/.test(tagName)) break;
+
+      const text = (node.innerText || node.textContent || '').replace(/\s+/g, ' ').trim();
+      if (text.length <= 1200) {
+        const hasDailyQuizTitle = /\bdaily quiz\b/i.test(text);
+        const hasQuizInstructions = quizInstructionRe.test(text);
+        const hasQuizImage = !!node.querySelector?.('img[src*="20250616_ibp366"], img[src*="_ibp366"]');
+        if (hasDailyQuizTitle && (hasQuizInstructions || hasQuizImage)) return true;
+        if (hasQuizInstructions && hasQuizImage) return true;
+      }
+
+      if (tagName === 'section' && text.length > 1200) break;
+      node = node.parentElement;
+    }
+
+    return false;
+  }
+
   getParagraphs() {
     const paragraphs = [];
     const seen = new Set();
@@ -118,6 +143,7 @@ class EconomistAdapter extends BaseAdapter {
       }
 
       if (el.closest('nav, header, footer, aside, audio, video, [class*="newsletter"], [class*="promo"], [class*="ad-slot"], [class*="ad-container"], [class*="in-article-ad"], [class*="-ad-"], [class*="advert"], [class*="sponsor"], [class*="related"], [class*="most"], [class*="sidebar"]')) continue;
+      if (this._isDailyQuizModule(el)) continue;
 
       const tagName = el.tagName.toLowerCase();
 
