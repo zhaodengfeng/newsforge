@@ -149,6 +149,40 @@ class BloombergAdapter extends BaseAdapter {
     return false;
   }
 
+  _looksLikePodcastPromoText(text) {
+    const compact = (text || '').replace(/\s+/g, ' ').trim();
+    if (!compact) return false;
+    if (/\bbloomberg daybreak\b/i.test(compact)) return true;
+    if (/\blisten to\b.{0,160}\bpodcast\b/i.test(compact)) return true;
+    if (/\bpodcast\b.{0,120}\b(apple|spotify|anywhere you listen)\b/i.test(compact)) return true;
+    return false;
+  }
+
+  _isAudioPodcastPromo(el) {
+    if (!el) return false;
+
+    let node = el;
+    for (let depth = 0; node && depth < 6; depth++, node = node.parentElement) {
+      const tagName = (node.tagName || '').toLowerCase();
+      if (tagName === 'article' || tagName === 'main' || tagName === 'body') break;
+
+      const className = typeof node.className === 'string' ? node.className : '';
+      const markers = [
+        className,
+        node.id,
+        node.getAttribute?.('data-component'),
+        node.getAttribute?.('data-testid'),
+        node.getAttribute?.('aria-label')
+      ].filter(Boolean).join(' ').toLowerCase();
+      if (/(podcast|audio)/.test(markers)) return true;
+
+      const text = (node.innerText || node.textContent || '').replace(/\s+/g, ' ').trim();
+      if (text.length <= 700 && this._looksLikePodcastPromoText(text)) return true;
+    }
+
+    return this._looksLikePodcastPromoText(el.innerText || el.textContent || '');
+  }
+
   getParagraphs() {
     const paragraphs = [];
     const seen = new Set();
@@ -178,6 +212,7 @@ class BloombergAdapter extends BaseAdapter {
       if (el.closest('nav, header, footer, aside, [class*="newsletter"], [class*="promo"], [class*="signup"], [class*="marketing"], [class*="ad-slot"], [class*="in-article-ad"]')) continue;
       if (this._isNonArticleChrome(el)) continue;
       if (this._isInlineRelatedModule(el)) continue;
+      if (this._isAudioPodcastPromo(el)) continue;
       if (el.closest('dvz-ai2html-wrapper')) continue;
 
       if (this._isRelatedLinksTable(el)) {
@@ -257,6 +292,7 @@ class BloombergAdapter extends BaseAdapter {
         if (el2.closest('nav, footer, aside')) continue;
         if (this._isNonArticleChrome(el2)) continue;
         if (this._isInlineRelatedModule(el2)) continue;
+        if (this._isAudioPodcastPromo(el2)) continue;
         const t2Lower = text2.toLowerCase();
         if (/^(more from bloomberg|related|recommended|trending|you might|get alerts for)/.test(t2Lower)) break;
         seen.add(text2);
