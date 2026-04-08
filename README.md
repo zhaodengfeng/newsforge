@@ -91,6 +91,11 @@ Additional behavior:
 
 ## Recent Updates
 
+### v26.4.11b16
+
+- Removed the accent rule above in-article section headings in reader view and exports
+- Updated package/version naming for the `26.4.11b16` beta line
+
 ### v26.4.11b15
 
 - Ensured PDF page canvases are released even if page encoding or PDF image insertion fails
@@ -203,12 +208,12 @@ Install from the Chrome Web Store:
 
 ### Manual install
 
-1. Download the latest `newsforge-v26.4.11b15.zip` package.
+1. Download the latest `newsforge-v26.4.11b16.zip` package.
 2. Unzip the package.
 3. Open `chrome://extensions`.
 4. Enable `Developer mode`.
 5. Click `Load unpacked`.
-6. Select the unzipped `newsforge-v26.4.11b15` folder.
+6. Select the unzipped `newsforge-v26.4.11b16` folder.
 
 ## Development
 
@@ -246,7 +251,7 @@ To work locally:
 
 1. Make changes under `src/`.
 2. Load the `src` folder as an unpacked extension during development.
-3. For release packaging, zip the built extension folder as `newsforge-v26.4.11b15.zip`.
+3. For release packaging, zip the built extension folder as `newsforge-v26.4.11b16.zip`.
 
 ## Privacy
 

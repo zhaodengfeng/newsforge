@@ -768,7 +768,7 @@ const ReaderRenderer = {
       '.nf-standfirst': `font-size:24px;line-height:1.55;margin:0 0 32px;color:${theme.textSecondary};font-family:${theme.fontSerif};`,
       '.nf-meta': `display:flex;align-items:center;gap:20px;margin-bottom:40px;padding-bottom:32px;border-bottom:1px solid ${theme.border};`,
       '.nf-author': `font-family:${theme.fontSans};font-size:14px;font-weight:500;color:${theme.textSecondary};`,
-      '.nf-heading': `font-size:24px;font-weight:600;margin:44px 0 20px;color:${theme.text};letter-spacing:-0.2px;padding-top:12px;border-top:2px solid ${theme.accent};display:inline-block;font-family:${theme.fontSerif};`,
+      '.nf-heading': `font-size:24px;font-weight:600;margin:44px 0 20px;color:${theme.text};letter-spacing:-0.2px;display:block;font-family:${theme.fontSerif};`,
       '.nf-paragraph': `font-size:18px;line-height:1.9;margin:0 0 28px;color:${theme.textSecondary};`,
       '.nf-original': origDisplay + `color:${theme.textSecondary};margin-bottom:0;`,
       '.nf-translation': `display:block;font-family:${theme.fontSans};font-size:18px;line-height:1.9;color:${theme.accentHover};margin-top:10px;`,
