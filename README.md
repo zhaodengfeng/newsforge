@@ -91,6 +91,11 @@ Additional behavior:
 
 ## Recent Updates
 
+### v26.4.11b22
+
+- Filtered WSJ series navigation modules such as `The Global AI Race` out of article extraction
+- Updated package/version naming for the `26.4.11b22` beta line
+
 ### v26.4.11b21
 
 - Kept The Economist World in Brief dek while filtering `less than 1 hour ago` article/audio metadata
@@ -233,12 +238,12 @@ Install from the Chrome Web Store:
 
 ### Manual install
 
-1. Download the latest `newsforge-v26.4.11b21.zip` package.
+1. Download the latest `newsforge-v26.4.11b22.zip` package.
 2. Unzip the package.
 3. Open `chrome://extensions`.
 4. Enable `Developer mode`.
 5. Click `Load unpacked`.
-6. Select the unzipped `newsforge-v26.4.11b21` folder.
+6. Select the unzipped `newsforge-v26.4.11b22` folder.
 
 ## Development
 
@@ -276,7 +281,7 @@ To work locally:
 
 1. Make changes under `src/`.
 2. Load the `src` folder as an unpacked extension during development.
-3. For release packaging, zip the built extension folder as `newsforge-v26.4.11b21.zip`.
+3. For release packaging, zip the built extension folder as `newsforge-v26.4.11b22.zip`.
 
 ## Privacy
 
