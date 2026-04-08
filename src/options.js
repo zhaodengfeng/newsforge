@@ -108,7 +108,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function updateExportQualityVisibility() {
     if (!exportImageFormatSelect || !exportQualityField) return;
-    exportQualityField.style.display = exportImageFormatSelect.value === 'png' ? 'none' : '';
+    exportQualityField.style.display = '';
   }
 
   function escapeAttr(str) {

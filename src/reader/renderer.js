@@ -1176,17 +1176,26 @@ const ReaderRenderer = {
     for (let i = 0; i < cuts.length - 1; i++) {
       const y = cuts[i];
       const height = cuts[i + 1] - y;
+      let canvas = null;
+      let flat = null;
       this._setButtonLabel(btn, `Exporting ${i + 1}/${total}`);
-      const canvas = await this._renderExportCanvas(clone, theme, { width: size.width, height, y });
-      const flat = this._flattenCanvas(canvas, theme.bg);
-      const blob = await this._canvasToBlob(flat, mime, quality);
-      if (!blob) throw new Error('Screenshot export failed');
-      this._downloadBlob(blob, this._buildExportFilename(filenameStem, ext, i + 1, total));
-      this._releaseCanvas(canvas);
-      this._releaseCanvas(flat);
+      try {
+        canvas = await this._renderExportCanvas(clone, theme, { width: size.width, height, y });
+        flat = this._flattenCanvas(canvas, theme.bg);
+        const blob = await this._canvasToBlob(flat, mime, quality);
+        if (!blob) throw new Error('Screenshot export failed');
+        this._downloadBlob(blob, this._buildExportFilename(filenameStem, ext, i + 1, total));
+      } finally {
+        this._releaseCanvas(canvas);
+        this._releaseCanvas(flat);
+      }
       await this._nextFrame();
     }
-    this.showToast(`Long article exported as ${total} readable ${ext.toUpperCase()} images`);
+    if (total === 1) {
+      this.showToast(`Screenshot exported as ${ext.toUpperCase()}`);
+    } else {
+      this.showToast(`Long article exported as ${total} readable ${ext.toUpperCase()} images`);
+    }
   },
 
   async takeScreenshot() {
@@ -1214,15 +1223,20 @@ const ReaderRenderer = {
       const size = this._getExportSize(clone);
 
       if (!exportSettings.longArticleMultiImageExport) {
+        let canvas = null;
+        let flat = null;
         this._setButtonLabel(btn, 'Rendering...');
-        const canvas = await this._renderExportCanvas(clone, theme);
-        const flat = this._flattenCanvas(canvas, theme.bg);
-        const blob = await this._canvasToBlob(flat, mime, quality);
-        if (!blob) throw new Error('Screenshot export failed');
-        const filenameStem = this._reserveExportFilenameStem(ext);
-        this._downloadBlob(blob, this._buildExportFilename(filenameStem, ext));
-        this._releaseCanvas(canvas);
-        this._releaseCanvas(flat);
+        try {
+          canvas = await this._renderExportCanvas(clone, theme);
+          flat = this._flattenCanvas(canvas, theme.bg);
+          const blob = await this._canvasToBlob(flat, mime, quality);
+          if (!blob) throw new Error('Screenshot export failed');
+          const filenameStem = this._reserveExportFilenameStem(ext);
+          this._downloadBlob(blob, this._buildExportFilename(filenameStem, ext));
+        } finally {
+          this._releaseCanvas(canvas);
+          this._releaseCanvas(flat);
+        }
       } else {
         const maxTileCssHeight = this._getMaxScreenshotCssHeight(size.width);
         const cuts = this._calculateExportCuts(clone, maxTileCssHeight, size.height);
@@ -1308,13 +1322,18 @@ const ReaderRenderer = {
         const srcY = cuts[i];
         const nextY = cuts[i + 1];
         const srcH = nextY - srcY;
-        const canvas = await this._renderExportCanvas(clone, theme, { width: size.width, height: srcH, y: srcY, scale: EXPORT_PDF_CANVAS_SCALE });
-        const pageCanvas = this._flattenCanvas(canvas, theme.bg);
-        const drawH = Math.min(contentH, (srcH / size.width) * contentW);
-        const pageImgData = await this._canvasToDataUrl(pageCanvas, 'image/jpeg', pdfQuality);
-        doc.addImage(pageImgData, 'JPEG', margin, margin, contentW, drawH, `page-${i}`, 'FAST');
-        this._releaseCanvas(canvas);
-        this._releaseCanvas(pageCanvas);
+        let canvas = null;
+        let pageCanvas = null;
+        try {
+          canvas = await this._renderExportCanvas(clone, theme, { width: size.width, height: srcH, y: srcY, scale: EXPORT_PDF_CANVAS_SCALE });
+          pageCanvas = this._flattenCanvas(canvas, theme.bg);
+          const drawH = Math.min(contentH, (srcH / size.width) * contentW);
+          const pageImgData = await this._canvasToDataUrl(pageCanvas, 'image/jpeg', pdfQuality);
+          doc.addImage(pageImgData, 'JPEG', margin, margin, contentW, drawH, `page-${i}`, 'FAST');
+        } finally {
+          this._releaseCanvas(canvas);
+          this._releaseCanvas(pageCanvas);
+        }
         await this._nextFrame();
       }
 

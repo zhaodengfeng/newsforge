@@ -83,13 +83,25 @@ Additional behavior:
 - Successful backup import updates the settings page in place without a full page reload
 - `JPEG` is the default screenshot format for broad app compatibility
 - `Balanced` is the default export quality
-- `PNG` export hides the quality selector because PNG is lossless
+- `PNG` screenshots stay lossless while export quality still controls PDF compression
 - Long articles try one full-size image by default, with optional multi-image export if that fails
 - Screenshots and PDFs inline remote article images before export to reduce cross-origin blank-image failures
 - Repeated export filenames in the same extension session get a five-digit suffix to avoid collisions
 - More readable translation error messages
 
 ## Recent Updates
+
+### v26.4.11b15
+
+- Ensured PDF page canvases are released even if page encoding or PDF image insertion fails
+- Updated package/version naming for the `26.4.11b15` beta line
+
+### v26.4.11b14
+
+- Ensured screenshot canvases are released even when long-image rendering or encoding fails
+- Kept export quality visible for `PNG` so users can still tune PDF image compression
+- Improved the multi-image export success message when only one image is produced
+- Updated package/version naming for the `26.4.11b14` beta line
 
 ### v26.4.11b13
 
@@ -191,12 +203,12 @@ Install from the Chrome Web Store:
 
 ### Manual install
 
-1. Download the latest `newsforge-v26.4.11b13.zip` package.
+1. Download the latest `newsforge-v26.4.11b15.zip` package.
 2. Unzip the package.
 3. Open `chrome://extensions`.
 4. Enable `Developer mode`.
 5. Click `Load unpacked`.
-6. Select the unzipped `newsforge-v26.4.11b13` folder.
+6. Select the unzipped `newsforge-v26.4.11b15` folder.
 
 ## Development
 
@@ -234,7 +246,7 @@ To work locally:
 
 1. Make changes under `src/`.
 2. Load the `src` folder as an unpacked extension during development.
-3. For release packaging, zip the built extension folder as `newsforge-v26.4.11b13.zip`.
+3. For release packaging, zip the built extension folder as `newsforge-v26.4.11b15.zip`.
 
 ## Privacy
 
