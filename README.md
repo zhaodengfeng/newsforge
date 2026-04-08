@@ -28,8 +28,8 @@ NewsForge is a Chrome extension for clean article reading, inline translation, a
 - `NewsForge` and `Classic` reader styles
 - Progressive translation rendering inside the reader
 - Local translation cache to avoid re-translating the same article with the same provider/model settings
-- Screenshot export for translated or original content with `JPEG`, `PNG`, and `WebP` options
-- Long-article image export as multiple readable images or a single SVG file
+- Screenshot export for translated or original content with `JPEG` and `PNG` options
+- Optional multi-image export fallback for very long articles that fail as a single image
 - PDF export with long-article pagination, image inlining, and safer page breaks
 - Export filenames use the article title when possible, with invalid filename characters removed
 - Local reading history
@@ -84,12 +84,30 @@ Additional behavior:
 - `JPEG` is the default screenshot format for broad app compatibility
 - `Balanced` is the default export quality
 - `PNG` export hides the quality selector because PNG is lossless
-- Long articles can export as multiple sharp image files or as one larger SVG container
+- Long articles try one full-size image by default, with optional multi-image export if that fails
 - Screenshots and PDFs inline remote article images before export to reduce cross-origin blank-image failures
 - Repeated export filenames in the same extension session get a five-digit suffix to avoid collisions
 - More readable translation error messages
 
 ## Recent Updates
+
+### v26.4.11b13
+
+- Restored screenshot export to try one full-size image by default without pre-splitting long articles
+- Replaced long-article SVG/mode selection with a default-off multi-image fallback switch
+- When multi-image fallback is enabled, long screenshots export as multiple `JPEG` or `PNG` files using the selected format and quality
+- Updated package/version naming for the `26.4.11b13` beta line
+
+### v26.4.11b12
+
+- Removed `WebP` screenshot export support and kept the export format choices to `JPEG` and `PNG`
+- Raised the long-image canvas threshold with an additional pixel-area guard to reduce unnecessary multi-image splits
+- Updated package/version naming for the `26.4.11b12` beta line
+
+### v26.4.11b11
+
+- Fixed SCMP headlines that embed status flags such as `Developing` inside the `h1`
+- Updated package/version naming for the `26.4.11b11` beta line
 
 ### v26.4.11b10
 
@@ -173,12 +191,12 @@ Install from the Chrome Web Store:
 
 ### Manual install
 
-1. Download the latest `newsforge-v26.4.11b10.zip` package.
+1. Download the latest `newsforge-v26.4.11b13.zip` package.
 2. Unzip the package.
 3. Open `chrome://extensions`.
 4. Enable `Developer mode`.
 5. Click `Load unpacked`.
-6. Select the unzipped `newsforge-v26.4.11b10` folder.
+6. Select the unzipped `newsforge-v26.4.11b13` folder.
 
 ## Development
 
@@ -216,7 +234,7 @@ To work locally:
 
 1. Make changes under `src/`.
 2. Load the `src` folder as an unpacked extension during development.
-3. For release packaging, zip the built extension folder as `newsforge-v26.4.11b10.zip`.
+3. For release packaging, zip the built extension folder as `newsforge-v26.4.11b13.zip`.
 
 ## Privacy
 

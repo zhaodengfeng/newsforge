@@ -6,7 +6,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const exportImageFormatSelect = document.getElementById('exportImageFormat');
   const exportQualitySelect = document.getElementById('exportQuality');
   const exportQualityField = document.getElementById('exportQualityField');
-  const longArticleImageExportSelect = document.getElementById('longArticleImageExport');
+  const longArticleMultiImageExportSelect = document.getElementById('longArticleMultiImageExport');
   const providerConfig = document.getElementById('providerConfig');
   const activeSummaryLine = document.getElementById('activeSummaryLine');
   const btnTestTranslate = document.getElementById('btnTestTranslate');
@@ -36,6 +36,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   let currentProvider = 'google';
   let saveStatusTimer = null;
+
+  function normalizeExportImageFormat(value) {
+    return value === 'png' ? 'png' : 'jpeg';
+  }
 
   function showTopStatus(message = 'Saved') {
     if (!saveStatus) return;
@@ -418,9 +422,9 @@ document.addEventListener('DOMContentLoaded', () => {
       translationProvider: draft.provider,
       targetLang: draft.targetLang,
       readerTheme: readerThemeSelect ? readerThemeSelect.value : 'default',
-      exportImageFormat: exportImageFormatSelect ? exportImageFormatSelect.value : 'jpeg',
+      exportImageFormat: normalizeExportImageFormat(exportImageFormatSelect ? exportImageFormatSelect.value : 'jpeg'),
       exportQuality: exportQualitySelect ? exportQualitySelect.value : 'balanced',
-      longArticleImageExport: longArticleImageExportSelect ? longArticleImageExportSelect.value : 'tiles'
+      longArticleMultiImageExport: longArticleMultiImageExportSelect ? longArticleMultiImageExportSelect.value === 'on' : false
     };
 
     if (info.type !== 'free') {
@@ -458,10 +462,10 @@ document.addEventListener('DOMContentLoaded', () => {
     providerSelect.value = currentProvider;
     targetLangSelect.value = baseSettings.targetLang || 'zh-CN';
     if (readerThemeSelect) readerThemeSelect.value = baseSettings.readerTheme || 'default';
-    if (exportImageFormatSelect) exportImageFormatSelect.value = baseSettings.exportImageFormat || 'jpeg';
+    if (exportImageFormatSelect) exportImageFormatSelect.value = normalizeExportImageFormat(baseSettings.exportImageFormat || 'jpeg');
     if (exportQualitySelect) exportQualitySelect.value = baseSettings.exportQuality || 'balanced';
-    if (longArticleImageExportSelect) {
-      longArticleImageExportSelect.value = baseSettings.longArticleImageExport === 'svg' ? 'svg' : 'tiles';
+    if (longArticleMultiImageExportSelect) {
+      longArticleMultiImageExportSelect.value = baseSettings.longArticleMultiImageExport === true ? 'on' : 'off';
     }
     updateExportQualityVisibility();
     return loadAndRenderConfig(currentProvider);
@@ -469,7 +473,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function refreshSettingsFromStorage() {
     return new Promise((resolve) => {
-      chrome.storage.local.get(['translationProvider', 'targetLang', 'readerTheme', 'exportImageFormat', 'exportQuality', 'longArticleImageExport'], (baseSettings) => {
+      chrome.storage.local.get(['translationProvider', 'targetLang', 'readerTheme', 'exportImageFormat', 'exportQuality', 'longArticleMultiImageExport'], (baseSettings) => {
         applyBaseSettings(baseSettings || {}).then(() => {
           resolve(baseSettings || {});
         });
@@ -491,7 +495,7 @@ document.addEventListener('DOMContentLoaded', () => {
     'readerTheme',
     'exportImageFormat',
     'exportQuality',
-    'longArticleImageExport',
+    'longArticleMultiImageExport',
     'google_apiKey',
     'microsoft_apiKey',
     'openai_apiKey',

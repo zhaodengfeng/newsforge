@@ -21,7 +21,7 @@ chrome.runtime.onInstalled.addListener(() => {
     targetLang: 'zh-CN',
     exportImageFormat: 'jpeg',
     exportQuality: 'balanced',
-    longArticleImageExport: 'tiles',
+    longArticleMultiImageExport: false,
   };
   chrome.storage.local.get(Object.keys(defaults), (existing) => {
     const toSet = {};

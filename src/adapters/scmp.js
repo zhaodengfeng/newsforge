@@ -26,11 +26,27 @@ class SCMPAdapter extends BaseAdapter {
   }
 
   _normalizeTitleText(text) {
-    return (text || '')
+    return this._cleanTitleString(text)
       .replace(/\s+/g, ' ')
-      .replace(/\s*\|\s*South China Morning Post\s*$/i, '')
       .trim()
       .toLowerCase();
+  }
+
+  _cleanTitleString(text) {
+    return (text || '')
+      .replace(/\s*\|\s*South China Morning Post\s*$/i, '')
+      .replace(/^\s*(developing|live|breaking|updated)\s*\|\s*/i, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  _getCleanTitleText(el) {
+    if (!el) return '';
+
+    const clone = el.cloneNode(true);
+    clone.querySelectorAll('[data-qa="ContentHeadlineTag-renderFlag-Flag"]').forEach(node => node.remove());
+
+    return this._cleanTitleString(clone.innerText || clone.textContent || '');
   }
 
   _isElementVisible(el) {
@@ -56,7 +72,7 @@ class SCMPAdapter extends BaseAdapter {
     let best = null;
 
     for (const el of headings) {
-      const text = (el.innerText || '').trim();
+      const text = this._getCleanTitleText(el);
       if (text.length < 5) continue;
 
       const normalized = this._normalizeTitleText(text);
@@ -121,18 +137,19 @@ class SCMPAdapter extends BaseAdapter {
   getTitle() {
     const activeTitle = this._getActiveTitleElement();
     if (activeTitle) {
-      const text = (activeTitle.innerText || '').trim();
+      const text = this._getCleanTitleText(activeTitle);
       if (text.length > 5) return text;
     }
 
     const metaTitle = document.querySelector('meta[property="og:title"]')?.getAttribute('content') || '';
     if (metaTitle.trim().length > 5) {
-      return metaTitle.replace(/\s*\|\s*South China Morning Post\s*$/i, '').trim();
+      return this._cleanTitleString(metaTitle);
     }
 
     const el = document.querySelector('h1');
-    if (el && el.innerText.trim().length > 5) return el.innerText.trim();
-    return document.title;
+    const h1Text = this._getCleanTitleText(el);
+    if (h1Text.length > 5) return h1Text;
+    return this._cleanTitleString(document.title);
   }
 
   getAuthor() {
@@ -215,7 +232,7 @@ class SCMPAdapter extends BaseAdapter {
 
       const h1 = el.querySelector('h1');
       if (h1) {
-        const h1Text = this._normalizeTitleText(h1.innerText || '');
+        const h1Text = this._normalizeTitleText(this._getCleanTitleText(h1));
         if (h1Text && titleHint && h1Text === titleHint) score += 8000;
         if (this._isElementVisible(h1)) score += 2000;
       }

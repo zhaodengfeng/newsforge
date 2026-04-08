@@ -41,7 +41,6 @@ const THEMES = {
 const THEME_KEYS = Object.keys(THEMES);
 
 const EXPORT_IMAGE_FORMATS = {
-  webp: { mime: 'image/webp', ext: 'webp' },
   png: { mime: 'image/png', ext: 'png' },
   jpeg: { mime: 'image/jpeg', ext: 'jpg' },
 };
@@ -72,9 +71,9 @@ const LLM_MAX_CHUNK_ITEMS = 5;
 const LLM_MAX_CHUNK_CHARS = 4200;
 const EXPORT_CANVAS_SCALE = 2;
 const EXPORT_PDF_CANVAS_SCALE = 1.25;
-const EXPORT_MAX_CANVAS_SIDE = 24000;
+const EXPORT_MAX_CANVAS_SIDE = 30000;
+const EXPORT_MAX_CANVAS_PIXELS = 120000000;
 const EXPORT_IMAGE_INLINE_CONCURRENCY = 3;
-const EXPORT_SVG_TILE_MIME = 'image/jpeg';
 
 const ReaderRenderer = {
   active: false,
@@ -125,13 +124,13 @@ const ReaderRenderer = {
 
   _loadExportSettings() {
     return new Promise((resolve) => {
-      chrome.storage.local.get(['exportImageFormat', 'exportQuality', 'longArticleImageExport'], (data) => {
+      chrome.storage.local.get(['exportImageFormat', 'exportQuality', 'longArticleMultiImageExport'], (data) => {
         const formatKey = EXPORT_IMAGE_FORMATS[data.exportImageFormat] ? data.exportImageFormat : 'jpeg';
         const qualityKey = EXPORT_QUALITY_PRESETS[data.exportQuality] ? data.exportQuality : 'balanced';
         resolve({
           imageFormat: EXPORT_IMAGE_FORMATS[formatKey],
           quality: EXPORT_QUALITY_PRESETS[qualityKey],
-          longArticleImageExport: data.longArticleImageExport === 'svg' ? 'svg' : 'tiles',
+          longArticleMultiImageExport: data.longArticleMultiImageExport === true,
         });
       });
     });
@@ -917,6 +916,13 @@ const ReaderRenderer = {
     return cuts;
   },
 
+  _getMaxScreenshotCssHeight(width) {
+    const scaledWidth = Math.max(1, Math.ceil((width || 1) * EXPORT_CANVAS_SCALE));
+    const sideLimitedHeight = Math.floor(EXPORT_MAX_CANVAS_SIDE / EXPORT_CANVAS_SCALE);
+    const areaLimitedHeight = Math.floor(EXPORT_MAX_CANVAS_PIXELS / scaledWidth / EXPORT_CANVAS_SCALE);
+    return Math.max(2000, Math.min(sideLimitedHeight, areaLimitedHeight));
+  },
+
   _setButtonLabel(btn, text) {
     const span = btn?.querySelector('span');
     if (!span || !text) return;
@@ -1158,31 +1164,6 @@ const ReaderRenderer = {
     return stem;
   },
 
-  _escapeXmlAttr(value) {
-    return String(value || '')
-      .replace(/&/g, '&amp;')
-      .replace(/"/g, '&quot;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-  },
-
-  _buildStitchedSvg({ tiles, background }) {
-    const width = Math.max(...tiles.map(tile => tile.width));
-    const height = tiles.reduce((sum, tile) => sum + tile.height, 0);
-    let y = 0;
-    const images = tiles.map(tile => {
-      const currentY = y;
-      y += tile.height;
-      return `<image href="${this._escapeXmlAttr(tile.dataUrl)}" x="0" y="${currentY}" width="${tile.width}" height="${tile.height}" preserveAspectRatio="none"/>`;
-    }).join('\n');
-
-    return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
-<rect width="100%" height="100%" fill="${this._escapeXmlAttr(background)}"/>
-${images}
-</svg>`;
-  },
-
   _releaseCanvas(canvas) {
     if (!canvas) return;
     canvas.width = 0;
@@ -1208,28 +1189,6 @@ ${images}
     this.showToast(`Long article exported as ${total} readable ${ext.toUpperCase()} images`);
   },
 
-  async _exportLongScreenshotAsSvg({ clone, theme, size, quality, btn, cuts }) {
-    const total = cuts.length - 1;
-    const filenameStem = this._reserveExportFilenameStem('svg');
-    const tiles = [];
-    for (let i = 0; i < cuts.length - 1; i++) {
-      const y = cuts[i];
-      const height = cuts[i + 1] - y;
-      this._setButtonLabel(btn, `Building SVG ${i + 1}/${total}`);
-      const canvas = await this._renderExportCanvas(clone, theme, { width: size.width, height, y });
-      const flat = this._flattenCanvas(canvas, theme.bg);
-      const dataUrl = await this._canvasToDataUrl(flat, EXPORT_SVG_TILE_MIME, quality);
-      tiles.push({ dataUrl, width: flat.width, height: flat.height });
-      this._releaseCanvas(canvas);
-      this._releaseCanvas(flat);
-      await this._nextFrame();
-    }
-    const svg = this._buildStitchedSvg({ tiles, background: theme.bg });
-    const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
-    this._downloadBlob(blob, this._buildExportFilename(filenameStem, 'svg'));
-    this.showToast(`Long article exported as one SVG (${total} JPEG slices)`);
-  },
-
   async takeScreenshot() {
     if (typeof html2canvas === 'undefined' || !this.overlay) return;
 
@@ -1240,6 +1199,7 @@ ${images}
     const themeKey = this._getCurrentThemeKey();
     const theme = THEMES[themeKey] || THEMES.default;
     let clone = null;
+    let exportSettings = null;
 
     try {
       clone = this._createExportClone(mode);
@@ -1248,16 +1208,14 @@ ${images}
       document.body.appendChild(clone);
       await this._prepareExportClone(clone, btn, 'Images');
 
-      const exportSettings = await this._loadExportSettings();
+      exportSettings = await this._loadExportSettings();
       const { mime, ext } = exportSettings.imageFormat;
       const quality = mime === 'image/png' ? undefined : exportSettings.quality.screenshotQuality;
-      const svgQuality = exportSettings.quality.screenshotQuality;
       const size = this._getExportSize(clone);
-      const maxTileCssHeight = Math.floor(EXPORT_MAX_CANVAS_SIDE / EXPORT_CANVAS_SCALE);
 
-      if (size.height <= maxTileCssHeight) {
+      if (!exportSettings.longArticleMultiImageExport) {
         this._setButtonLabel(btn, 'Rendering...');
-        const canvas = await this._renderExportCanvas(clone, theme, { width: size.width, height: size.height });
+        const canvas = await this._renderExportCanvas(clone, theme);
         const flat = this._flattenCanvas(canvas, theme.bg);
         const blob = await this._canvasToBlob(flat, mime, quality);
         if (!blob) throw new Error('Screenshot export failed');
@@ -1266,32 +1224,26 @@ ${images}
         this._releaseCanvas(canvas);
         this._releaseCanvas(flat);
       } else {
+        const maxTileCssHeight = this._getMaxScreenshotCssHeight(size.width);
         const cuts = this._calculateExportCuts(clone, maxTileCssHeight, size.height);
-        if (exportSettings.longArticleImageExport === 'svg') {
-          await this._exportLongScreenshotAsSvg({
-            clone,
-            theme,
-            size,
-            quality: svgQuality,
-            btn,
-            cuts
-          });
-        } else {
-          await this._exportLongScreenshotAsTiles({
-            clone,
-            theme,
-            size,
-            mime,
-            ext,
-            quality,
-            btn,
-            cuts
-          });
-        }
+        await this._exportLongScreenshotAsTiles({
+          clone,
+          theme,
+          size,
+          mime,
+          ext,
+          quality,
+          btn,
+          cuts
+        });
       }
     } catch (err) {
       console.error('NewsForge screenshot error:', err);
-      this.showToast(err.message || 'Screenshot failed');
+      if (exportSettings && !exportSettings.longArticleMultiImageExport) {
+        this.showToast('Screenshot failed. For very long articles, enable multi-image export in Settings.');
+      } else {
+        this.showToast(err.message || 'Screenshot failed');
+      }
     } finally {
       this._revokeExportCloneResources(clone);
       clone?.remove();
