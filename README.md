@@ -91,6 +91,16 @@ Additional behavior:
 
 ## Recent Updates
 
+### v26.4.11b27
+
+- Broadened FT filtering for teaser, event-promo and `Latest on ...` modules so subscriber promos and topic cards stay out of article text
+- Updated package/version naming for the `26.4.11b27` beta line
+
+### v26.4.11b26
+
+- Fixed FT extraction so early CTA copy no longer trips the end-marker fallback and subscriber event promos stay out of article text
+- Updated package/version naming for the `26.4.11b26` beta line
+
 ### v26.4.11b25
 
 - Filtered The Economist print-edition and list-of-contents promo blocks out of article extraction
@@ -253,12 +263,12 @@ Install from the Chrome Web Store:
 
 ### Manual install
 
-1. Download the latest `newsforge-v26.4.11b25.zip` package.
+1. Download the latest `newsforge-v26.4.11b27.zip` package.
 2. Unzip the package.
 3. Open `chrome://extensions`.
 4. Enable `Developer mode`.
 5. Click `Load unpacked`.
-6. Select the unzipped `newsforge-v26.4.11b25` folder.
+6. Select the unzipped `newsforge-v26.4.11b27` folder.
 
 ## Development
 
@@ -296,7 +306,7 @@ To work locally:
 
 1. Make changes under `src/`.
 2. Load the `src` folder as an unpacked extension during development.
-3. For release packaging, zip the built extension folder as `newsforge-v26.4.11b25.zip`.
+3. For release packaging, zip the built extension folder as `newsforge-v26.4.11b27.zip`.
 
 ## Privacy
 

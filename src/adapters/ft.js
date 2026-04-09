@@ -57,10 +57,10 @@ class FTAdapter extends BaseAdapter {
     const scope = document.querySelector('article') || this.getContentContainer() || document;
     const allEls = scope.querySelectorAll('h2, h3, h4, [role="heading"], a[href], p');
     const total = allEls.length;
-    for (let i = 0; i < total; i++) {
+    for (let i = total - 1; i >= 0; i--) {
       const text = (allEls[i].innerText || '').trim().toLowerCase();
-      if (i < total * 0.7 && /^(recommended)$/.test(text)) continue;
-      if (/^(managing risk and opportunity|get ahead with daily|keep up with|follow the topics|more from the ft|related|recommended|popular in|more stories|explore the ft|try premium|myft|copyright|newsletter|sign up|subscribe|understanding the most|signed in as|edit commenting|show comments)/.test(text)) {
+      if (i < total * 0.7) return null;
+      if (/^(latest on|more from the ft|related|recommended|popular in|more stories|explore the ft|try premium|myft|copyright|newsletter|sign up|subscribe|understanding the most|signed in as|edit commenting|show comments|exclusively for subscribers)/.test(text)) {
         return allEls[i];
       }
     }
@@ -99,6 +99,7 @@ class FTAdapter extends BaseAdapter {
     const featuredSrc = this.getFeaturedImage();
     const container = this.getContentContainer();
     if (!container) return paragraphs;
+    const skipSelector = 'nav, header, footer, aside, [class*="ad-slot"], [class*="ad-container"], [class*="in-article-ad"], [class*="-ad-"], [class*="advert"], [class*="sponsor"], [class*="newsletter"], [class*="promo"], [class*="related"], [class*="article-info"], [class*="byline"], [class*="timestamp"], [class*="meta"], [class*="teaser"], [class*="magnet"], [class*="event-promo"]';
 
     const endMarker = this._findArticleEndMarker();
 
@@ -114,7 +115,7 @@ class FTAdapter extends BaseAdapter {
         if (pos & Node.DOCUMENT_POSITION_FOLLOWING) break;
       }
 
-      if (el.closest('nav, header, footer, aside, [class*="ad-slot"], [class*="ad-container"], [class*="in-article-ad"], [class*="-ad-"], [class*="advert"], [class*="sponsor"], [class*="newsletter"], [class*="promo"], [class*="related"], [class*="article-info"], [class*="byline"], [class*="timestamp"], [class*="meta"]')) continue;
+      if (el.closest(skipSelector)) continue;
 
       const tagName = el.tagName.toLowerCase();
 
@@ -159,6 +160,8 @@ class FTAdapter extends BaseAdapter {
       if (/^get ahead with daily|^keep up with|^stay informed|^follow the topics/i.test(text)) continue;
       if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)) continue;
       if (/email|@ft\.com/i.test(text) && text.length < 80) continue;
+      if (/^exclusively for subscribers\b/i.test(text)) continue;
+      if (/^latest on\b/i.test(text)) continue;
       if (/^managing risk and opportunity in the world/i.test(text)) continue;
       if (/^(sign up|subscribe|newsletter|myft|try premium|more from|read more|share this|follow|copyright|signed in as|edit commenting|show comments|understanding the most)/i.test(text)) continue;
       if (/^understanding the (most|key|latest|important)/i.test(text) && text.length < 120) continue;
@@ -184,9 +187,11 @@ class FTAdapter extends BaseAdapter {
         const text2 = (el2.innerText || '').trim();
         if (text2.length < 40) continue;
         if (seen.has(text2)) continue;
-        if (el2.closest('nav, footer, aside')) continue;
+        if (el2.closest(skipSelector)) continue;
         const t2Lower = text2.toLowerCase();
-        if (/^(managing risk|get ahead|keep up|more from the ft|related|popular in|more stories|explore the ft|try premium|myft|sign up|subscribe|newsletter|understanding the most|signed in as|edit commenting|show comments)/.test(t2Lower)) break;
+        if (/^(managing risk|get ahead|keep up|latest on|more from the ft|related|popular in|more stories|explore the ft|try premium|myft|sign up|subscribe|newsletter|understanding the most|signed in as|edit commenting|show comments|exclusively for subscribers)/.test(t2Lower)) break;
+        if (/^exclusively for subscribers\b/i.test(text2)) continue;
+        if (/^latest on\b/i.test(text2)) continue;
         if (/^recommended$/i.test(text2)) continue;
         seen.add(text2);
         paragraphs.push({ type: 'text', level: 0, text: text2 });
