@@ -105,6 +105,8 @@ class NYTimesAdapter extends BaseAdapter {
       if (seen.has(text)) continue;
 
       if (/^(sign up|subscribe|newsletter|most popular|what to read next|related|recommended)/i.test(text)) continue;
+      if (/^the times is committed to publishing a diversity of letters to the editor\./i.test(text)) continue;
+      if (/^follow the new york times opinion section on\b/i.test(text)) continue;
       if (/^content provided by/i.test(text)) continue;
       if (/^copyright ©\d{4}/i.test(text)) continue;
       if (/^\d+\s+(hours?|days?|minutes?)\s+ago$/i.test(text)) continue;
