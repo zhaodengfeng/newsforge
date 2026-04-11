@@ -105,6 +105,7 @@ class WSJAdapter extends BaseAdapter {
 
     for (let i = startIdx; i < elements.length; i++) {
       const el = elements[i];
+      const wsjBylineRoot = el.closest('[data-testid="timestamp-text"], [data-testid="byline"], [data-testid="author-link"], a[href*="/news/author/"], [class*="Authoring" i], [class*="Byline" i], [class*="HedCut" i], [class*="TimeTag" i]');
 
       if (endMarker) {
         if (el === endMarker) break;
@@ -112,6 +113,7 @@ class WSJAdapter extends BaseAdapter {
         if (pos & Node.DOCUMENT_POSITION_FOLLOWING) break;
       }
 
+      if (wsjBylineRoot) continue;
       if (el.closest('nav, header, footer, aside, video, [class*="newsletter"], [class*="promo"], [class*="series-nav"], [class*="ad-slot"], [class*="ad-container"], [class*="in-article-ad"], [class*="-ad-"], [class*="advert"], [class*="sponsor"], [class*="related"], [class*="most"], [class*="video"], [class*="share-your-thoughts"], [class*="ShareYourThoughts"], [class*="opinion-question"]')) continue;
       if (el.closest('.ai2html_export, .djai2html-foot')) continue;
       if (el.closest('[data-testid="author-module-bio"], [class*="AuthorModuleBio"]')) continue;

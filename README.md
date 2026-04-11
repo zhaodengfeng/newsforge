@@ -91,6 +91,11 @@ Additional behavior:
 
 ## Recent Updates
 
+### v26.4.11b28
+
+- Filtered WSJ top author headshot and byline/timestamp blocks out of article extraction
+- Updated package/version naming for the `26.4.11b28` beta line
+
 ### v26.4.11b27
 
 - Broadened FT filtering for teaser, event-promo and `Latest on ...` modules so subscriber promos and topic cards stay out of article text
@@ -263,12 +268,12 @@ Install from the Chrome Web Store:
 
 ### Manual install
 
-1. Download the latest `newsforge-v26.4.11b27.zip` package.
+1. Download the latest `newsforge-v26.4.11b28.zip` package.
 2. Unzip the package.
 3. Open `chrome://extensions`.
 4. Enable `Developer mode`.
 5. Click `Load unpacked`.
-6. Select the unzipped `newsforge-v26.4.11b27` folder.
+6. Select the unzipped `newsforge-v26.4.11b28` folder.
 
 ## Development
 
@@ -306,7 +311,7 @@ To work locally:
 
 1. Make changes under `src/`.
 2. Load the `src` folder as an unpacked extension during development.
-3. For release packaging, zip the built extension folder as `newsforge-v26.4.11b27.zip`.
+3. For release packaging, zip the built extension folder as `newsforge-v26.4.11b28.zip`.
 
 ## Privacy
 
