@@ -91,6 +91,17 @@ Additional behavior:
 
 ## Recent Updates
 
+### v26.4.12b3
+
+- Restored the article source URL at the bottom of `Title + hero` screenshot exports so they match full-page screenshots more closely
+- Updated package/version naming for the `26.4.12b3` beta line
+
+### v26.4.12b2
+
+- Added a screenshot range option so image export can capture either the full article or just the title-through-hero section
+- Added a saved default for screenshot content range in Settings
+- Updated package/version naming for the `26.4.12b2` beta line
+
 ### v26.4.12
 
 - Promoted the recent article-extraction fixes from the `26.4.11` beta line into a stable release
@@ -274,12 +285,12 @@ Install from the Chrome Web Store:
 
 ### Manual install
 
-1. Download the latest `newsforge-v26.4.12.zip` package.
+1. Download the latest `newsforge-v26.4.12b3.zip` package.
 2. Unzip the package.
 3. Open `chrome://extensions`.
 4. Enable `Developer mode`.
 5. Click `Load unpacked`.
-6. Select the unzipped `newsforge-v26.4.12` folder.
+6. Select the unzipped `newsforge-v26.4.12b3` folder.
 
 ## Development
 
@@ -317,7 +328,7 @@ To work locally:
 
 1. Make changes under `src/`.
 2. Load the `src` folder as an unpacked extension during development.
-3. For release packaging, zip the built extension folder as `newsforge-v26.4.12.zip`.
+3. For release packaging, zip the built extension folder as `newsforge-v26.4.12b3.zip`.
 
 ## Privacy
 

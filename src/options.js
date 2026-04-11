@@ -4,6 +4,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const targetLangSelect = document.getElementById('targetLang');
   const readerThemeSelect = document.getElementById('readerTheme');
   const exportImageFormatSelect = document.getElementById('exportImageFormat');
+  const exportScreenshotScopeSelect = document.getElementById('exportScreenshotScope');
   const exportQualitySelect = document.getElementById('exportQuality');
   const exportQualityField = document.getElementById('exportQualityField');
   const longArticleMultiImageExportSelect = document.getElementById('longArticleMultiImageExport');
@@ -39,6 +40,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function normalizeExportImageFormat(value) {
     return value === 'png' ? 'png' : 'jpeg';
+  }
+
+  function normalizeExportScreenshotScope(value) {
+    return value === 'hero' ? 'hero' : 'full';
   }
 
   function showTopStatus(message = 'Saved') {
@@ -423,6 +428,7 @@ document.addEventListener('DOMContentLoaded', () => {
       targetLang: draft.targetLang,
       readerTheme: readerThemeSelect ? readerThemeSelect.value : 'default',
       exportImageFormat: normalizeExportImageFormat(exportImageFormatSelect ? exportImageFormatSelect.value : 'jpeg'),
+      exportScreenshotScope: normalizeExportScreenshotScope(exportScreenshotScopeSelect ? exportScreenshotScopeSelect.value : 'full'),
       exportQuality: exportQualitySelect ? exportQualitySelect.value : 'balanced',
       longArticleMultiImageExport: longArticleMultiImageExportSelect ? longArticleMultiImageExportSelect.value === 'on' : false
     };
@@ -463,6 +469,7 @@ document.addEventListener('DOMContentLoaded', () => {
     targetLangSelect.value = baseSettings.targetLang || 'zh-CN';
     if (readerThemeSelect) readerThemeSelect.value = baseSettings.readerTheme || 'default';
     if (exportImageFormatSelect) exportImageFormatSelect.value = normalizeExportImageFormat(baseSettings.exportImageFormat || 'jpeg');
+    if (exportScreenshotScopeSelect) exportScreenshotScopeSelect.value = normalizeExportScreenshotScope(baseSettings.exportScreenshotScope || 'full');
     if (exportQualitySelect) exportQualitySelect.value = baseSettings.exportQuality || 'balanced';
     if (longArticleMultiImageExportSelect) {
       longArticleMultiImageExportSelect.value = baseSettings.longArticleMultiImageExport === true ? 'on' : 'off';
@@ -473,7 +480,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function refreshSettingsFromStorage() {
     return new Promise((resolve) => {
-      chrome.storage.local.get(['translationProvider', 'targetLang', 'readerTheme', 'exportImageFormat', 'exportQuality', 'longArticleMultiImageExport'], (baseSettings) => {
+      chrome.storage.local.get(['translationProvider', 'targetLang', 'readerTheme', 'exportImageFormat', 'exportScreenshotScope', 'exportQuality', 'longArticleMultiImageExport'], (baseSettings) => {
         applyBaseSettings(baseSettings || {}).then(() => {
           resolve(baseSettings || {});
         });
@@ -494,6 +501,7 @@ document.addEventListener('DOMContentLoaded', () => {
     'targetLang',
     'readerTheme',
     'exportImageFormat',
+    'exportScreenshotScope',
     'exportQuality',
     'longArticleMultiImageExport',
     'google_apiKey',

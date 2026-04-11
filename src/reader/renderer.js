@@ -45,6 +45,11 @@ const EXPORT_IMAGE_FORMATS = {
   jpeg: { mime: 'image/jpeg', ext: 'jpg' },
 };
 
+const EXPORT_SCREENSHOT_SCOPES = {
+  full: 'full',
+  hero: 'hero',
+};
+
 const EXPORT_QUALITY_PRESETS = {
   high: { screenshotQuality: 0.96, pdfQuality: 0.92 },
   balanced: { screenshotQuality: 0.9, pdfQuality: 0.88 },
@@ -122,13 +127,26 @@ const ReaderRenderer = {
     return true;
   },
 
+  _normalizeScreenshotScope(value) {
+    return value === EXPORT_SCREENSHOT_SCOPES.hero ? EXPORT_SCREENSHOT_SCOPES.hero : EXPORT_SCREENSHOT_SCOPES.full;
+  },
+
+  _saveScreenshotScope(scope) {
+    const normalized = this._normalizeScreenshotScope(scope);
+    chrome.storage.local.set({ exportScreenshotScope: normalized }, () => {
+      // Storage write is fire-and-forget; errors are silently ignored.
+    });
+    return normalized;
+  },
+
   _loadExportSettings() {
     return new Promise((resolve) => {
-      chrome.storage.local.get(['exportImageFormat', 'exportQuality', 'longArticleMultiImageExport'], (data) => {
+      chrome.storage.local.get(['exportImageFormat', 'exportScreenshotScope', 'exportQuality', 'longArticleMultiImageExport'], (data) => {
         const formatKey = EXPORT_IMAGE_FORMATS[data.exportImageFormat] ? data.exportImageFormat : 'jpeg';
         const qualityKey = EXPORT_QUALITY_PRESETS[data.exportQuality] ? data.exportQuality : 'balanced';
         resolve({
           imageFormat: EXPORT_IMAGE_FORMATS[formatKey],
+          screenshotScope: this._normalizeScreenshotScope(data.exportScreenshotScope),
           quality: EXPORT_QUALITY_PRESETS[qualityKey],
           longArticleMultiImageExport: data.longArticleMultiImageExport === true,
         });
@@ -177,6 +195,10 @@ const ReaderRenderer = {
           <select class="nf-select nf-translate-mode" title="Translation mode">
             <option value="bilingual">Bilingual</option>
             <option value="target">Translation</option>
+          </select>
+          <select class="nf-select nf-screenshot-scope-select" title="Screenshot range">
+            <option value="full">Full article</option>
+            <option value="hero">Title + hero</option>
           </select>
           <button class="nf-btn nf-btn-translate" title="Translate">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -234,6 +256,7 @@ const ReaderRenderer = {
     document.documentElement.appendChild(this.overlay);
     document.body.classList.add('nf-reader-active');
     this.bindEvents();
+    this._syncToolbarExportSettings();
 
     chrome.runtime.sendMessage({
       type: 'article_opened',
@@ -286,6 +309,10 @@ const ReaderRenderer = {
       }
     });
 
+    this.overlay.querySelector('.nf-screenshot-scope-select').addEventListener('change', (e) => {
+      e.target.value = this._saveScreenshotScope(e.target.value);
+    });
+
     this._escHandler = (e) => {
       if (e.key === 'Escape') this.close();
     };
@@ -315,6 +342,22 @@ const ReaderRenderer = {
 
   getTranslateMode() {
     return this.overlay?.querySelector('.nf-translate-mode')?.value || 'bilingual';
+  },
+
+  getScreenshotScope() {
+    return this._normalizeScreenshotScope(this.overlay?.querySelector('.nf-screenshot-scope-select')?.value);
+  },
+
+  async _syncToolbarExportSettings() {
+    if (!this.overlay) return;
+    try {
+      const exportSettings = await this._loadExportSettings();
+      if (!this.overlay) return;
+      const scopeSelect = this.overlay.querySelector('.nf-screenshot-scope-select');
+      if (scopeSelect) scopeSelect.value = exportSettings.screenshotScope;
+    } catch {
+      // Keep defaults if settings cannot be read.
+    }
   },
 
   buildTranslationContext() {
@@ -744,7 +787,7 @@ const ReaderRenderer = {
     return this.overlay?.dataset?.theme || 'default';
   },
 
-  _createExportClone(mode) {
+  _createExportClone(mode, options = {}) {
     if (!this.overlay) return null;
     const content = this.overlay.querySelector('.nf-reader-content');
     if (!content) return null;
@@ -752,6 +795,7 @@ const ReaderRenderer = {
     const themeKey = this._getCurrentThemeKey();
     const theme = THEMES[themeKey] || THEMES.default;
     const clone = content.cloneNode(true);
+    const screenshotScope = this._normalizeScreenshotScope(options.screenshotScope);
 
     clone.style.cssText = `
       position: absolute; left: -9999px; top: 0;
@@ -829,6 +873,18 @@ const ReaderRenderer = {
         el.style.color = theme.text;
         el.style.marginTop = '0';
       });
+    }
+
+    if (screenshotScope === EXPORT_SCREENSHOT_SCOPES.hero) {
+      clone.querySelector('.nf-body')?.remove();
+      clone.style.paddingBottom = '40px';
+      const featuredImage = clone.querySelector('.nf-featured-image');
+      if (featuredImage) {
+        featuredImage.style.marginBottom = '0';
+      } else {
+        clone.querySelector('.nf-meta')?.style.setProperty('margin-bottom', '0');
+        clone.querySelector('.nf-standfirst')?.style.setProperty('margin-bottom', '20px');
+      }
     }
 
     // Source URL bar at bottom
@@ -1211,13 +1267,13 @@ const ReaderRenderer = {
     let exportSettings = null;
 
     try {
-      clone = this._createExportClone(mode);
+      exportSettings = await this._loadExportSettings();
+      clone = this._createExportClone(mode, { screenshotScope: exportSettings.screenshotScope });
       if (!clone) throw new Error('No content to capture');
 
       document.body.appendChild(clone);
       await this._prepareExportClone(clone, btn, 'Images');
 
-      exportSettings = await this._loadExportSettings();
       const { mime, ext } = exportSettings.imageFormat;
       const quality = mime === 'image/png' ? undefined : exportSettings.quality.screenshotQuality;
       const size = this._getExportSize(clone);
