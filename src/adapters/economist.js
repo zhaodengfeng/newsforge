@@ -140,7 +140,7 @@ class EconomistAdapter extends BaseAdapter {
   _isNewsletterPromoModule(el) {
     if (!el) return false;
 
-    const promoRe = /stay informed with\b.*\bnewsletter\b|\bwar room newsletter\b.*\bworld-class coverage of defen[cs]e and international security issues|\bfor subscribers only:\s*to see how we design each week(?:’|’)?s cover,\s*sign up to our weekly cover story newsletter\b|\bsign up to\s+caf[éèe]\s+europa\b/i;
+    const promoRe = /stay informed with\b.*\bnewsletter\b|\bwar room newsletter\b.*\bworld-class coverage of defen[cs]e and international security issues|\bfor subscribers only:\s*to see how we design each week(?:’|’)?s cover,\s*sign up to our weekly cover story newsletter\b|\bsign up to\s+[^,]{1,60},\s*our\s+.*?\bnewsletter\b/i;
     let node = el;
     for (let depth = 0; node && depth < 6; depth++) {
       const tagName = (node.tagName || '').toLowerCase();
@@ -251,7 +251,7 @@ class EconomistAdapter extends BaseAdapter {
       if (/^listen to (the )?(briefing|audio|podcast)/i.test(text)) continue;
       if (/^follow (our |the )?latest coverage/i.test(text)) continue;
       if (/^sign up to enjoy/i.test(text)) continue;
-      if (/\bsign up to\s+caf[éèe]\s+europa\b/i.test(text)) continue;
+      if (/\bsign up to\s+[^,]{1,60},\s*our\s+.*?\bnewsletter\b/i.test(text)) continue;
       if (/^figure of the day/i.test(text) && text.length < 200) continue;
       if (/^this article appeared in the .* section of the print edition under the headline\b/i.test(text)) continue;
       if (/^from the [a-z]+\s+\d{1,2}(?:st|nd|rd|th)?\s+\d{4}\s+edition\b/i.test(text)) continue;
