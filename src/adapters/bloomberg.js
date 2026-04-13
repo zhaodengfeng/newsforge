@@ -54,7 +54,7 @@ class BloombergAdapter extends BaseAdapter {
     for (let i = 0; i < allEls.length; i++) {
       const text = (allEls[i].innerText || '').trim().toLowerCase();
       if (text.length > 150) continue;
-      if (/^(more from bloomberg|related stories|most read|trending now|you might also|more stories|recommended for you)/.test(text)) {
+      if (/^(more from bloomberg|related stories|most read|trending now|you might also|more stories|recommended for you|tech chart of the day|chart of the day|top tech stories|earnings due)/.test(text)) {
         return allEls[i];
       }
       if (/^get alerts for\b/i.test(text)) {
@@ -333,7 +333,7 @@ class BloombergAdapter extends BaseAdapter {
       if (/^delivered (weekly|daily|monthly)/i.test(text)) continue;
       if (/^\+?\s*sign up$/i.test(text) && text.length < 30) continue;
       const textLower = text.toLowerCase();
-      if (/^(more from bloomberg|related stories|recommended|trending|you might)/.test(textLower)) break;
+      if (/^(more from bloomberg|related stories|recommended|trending|you might|tech chart of the day|chart of the day|top tech stories|earnings due)/.test(textLower)) break;
       if (/takeaways.*bloomberg ai|bloomberg ai.*takeaways/i.test(text)) continue;
       if (/^(hide|show|takeaways)$/i.test(text)) continue;
       if (/^get alerts for\b/i.test(text)) break;

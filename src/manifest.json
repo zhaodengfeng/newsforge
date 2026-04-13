@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "NewsForge - News Reader & Translator",
-  "version": "26.4.13",
-  "version_name": "26.4.13",
+  "version": "26.4.14",
+  "version_name": "26.4.14b1",
   "description": "Clean reader mode with AI translation, screenshots, PDF export and encrypted backups for major news sites.",
   "permissions": [
     "storage",

@@ -39,6 +39,24 @@ class EconomistAdapter extends BaseAdapter {
     return '';
   }
 
+  getStandfirst() {
+    // 副标题通常是紧跟在 h1 后面的那个 h2
+    const h1 = document.querySelector('h1');
+    if (h1) {
+      let next = h1.nextElementSibling;
+      while (next) {
+        if (next.tagName === 'H2') {
+          const text = next.innerText.trim();
+          if (text.length > 10 && text.length < 300) return text;
+          break;
+        }
+        if (next.tagName === 'DIV' && next.innerText.trim().length > 200) break;
+        next = next.nextElementSibling;
+      }
+    }
+    return '';
+  }
+
   getFeaturedImage() {
     const og = document.querySelector('meta[property="og:image"]');
     if (og) {
@@ -74,8 +92,10 @@ class EconomistAdapter extends BaseAdapter {
           return allEls[i];
         }
       } else {
+        // "More from [region]" 区域性标题优先检测，不管位置
+        if (/^more from \w+/i.test(lower)) return allEls[i];
         if (i < total * 0.7) return null;
-        if (/^(explore more|more from|related|recommended|popular|trending|you may also|readers also|sign up|subscribe|newsletter|copyright|keep updated|more on this)/.test(lower)) {
+        if (/^(explore more|related|recommended|popular|trending|you may also|readers also|sign up|subscribe|newsletter|copyright|keep updated|more on this)/.test(lower)) {
           return allEls[i];
         }
       }
@@ -212,12 +232,18 @@ class EconomistAdapter extends BaseAdapter {
       // 文本
       if (el.closest('figcaption, audio, video')) continue;
       let text = (el.innerText || '').trim();
+      // 过滤掉作为副标题的 h2（紧跟 h1 后的那个）
+      if (tagName === 'h2') {
+        const standfirst = this.getStandfirst();
+        if (standfirst && text.endsWith(standfirst)) continue;
+      }
       // 修复 Economist 首字母下沉导致的额外空格
       text = text.replace(/^([A-Za-z])\s([a-z])/, '$1$2');
-      if (text.length < 15) continue;
       if (seen.has(text)) continue;
 
-      if (/^(explore more|more from)/i.test(text)) break;
+      if (/^more from \w+/i.test(text)) break;
+      if (/^explore more/i.test(text)) break;
+      if (text.length < 15) continue;
       if (/^(sign up|subscribe|newsletter|related|recommended|keep updated|more on this)/i.test(text)) continue;
       if (/^copyright/i.test(text)) continue;
       if (/^\d+\s+(hours?|days?|minutes?)\s+ago$/i.test(text)) continue;
