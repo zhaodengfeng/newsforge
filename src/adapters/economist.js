@@ -251,8 +251,8 @@ class EconomistAdapter extends BaseAdapter {
       if (/^listen to (the )?(briefing|audio|podcast)/i.test(text)) continue;
       if (/^follow (our |the )?latest coverage/i.test(text)) continue;
       if (/^sign up to enjoy/i.test(text)) continue;
+      if (/how well have you been following.*\bweekly quiz\b/i.test(text)) continue;
       if (/\bsign up to\s+[^,]{1,60},\s*our\s+.*?\bnewsletter\b/i.test(text)) continue;
-      if (/^figure of the day/i.test(text) && text.length < 200) continue;
       if (/^this article appeared in the .* section of the print edition under the headline\b/i.test(text)) continue;
       if (/^from the [a-z]+\s+\d{1,2}(?:st|nd|rd|th)?\s+\d{4}\s+edition\b/i.test(text)) continue;
       if (/^discover stories from this section and more in the list of contents\b/i.test(text)) continue;
