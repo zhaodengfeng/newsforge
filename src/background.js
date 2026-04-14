@@ -748,9 +748,7 @@ function parseLLMTranslations(rawContent, texts) {
 async function googleTranslate(texts, targetLang) {
   const lang = targetLang === 'zh-TW' ? 'zh-TW' : targetLang === 'zh-CN' ? 'zh-CN' : targetLang;
 
-  // Use sequential requests — Google batch response format is unreliable for multi-text
-  const translations = [];
-  for (const text of texts) {
+  const translations = await Promise.all(texts.map(async (text) => {
     const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${lang}&dt=t&q=${encodeURIComponent(text)}`;
     const resp = await fetch(url);
     if (!resp.ok) throw new Error(`Google Translate error: ${resp.status}`);
@@ -761,8 +759,8 @@ async function googleTranslate(texts, targetLang) {
         if (part && part[0]) result += part[0];
       }
     }
-    translations.push(result || text);
-  }
+    return result || text;
+  }));
 
   return { translations };
 }
