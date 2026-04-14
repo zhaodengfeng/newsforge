@@ -1,7 +1,7 @@
 // NewsForge Background Service Worker
 importScripts('providers.js');
 
-const TRANSLATION_CACHE_VERSION = 'translation-cache-v1';
+const TRANSLATION_CACHE_VERSION = 'translation-cache-v2';
 const TRANSLATION_CACHE_KEY = 'translationCache';
 const TRANSLATION_CACHE_MAX_ENTRIES = 1200;
 const EXPORT_IMAGE_FETCH_MAX_BYTES = 15 * 1024 * 1024;
