@@ -676,13 +676,53 @@ function parseJsonLikeTranslationLines(content) {
   return cleaned;
 }
 
+function extractJsonString(content) {
+  const trimmed = content.trim();
+
+  // Strategy 1: Try as-is
+  try { JSON.parse(trimmed); return trimmed; } catch {}
+
+  // Strategy 2: Strip code fences aggressively (handles prefix text like "Here's the translation:\n```json")
+  let cleaned = trimmed.replace(/^[^{[]*?```(?:json)?\s*\r?\n?/i, '');
+  cleaned = cleaned.replace(/\r?\n?\s*```[^}\]]*$/, '');
+  cleaned = cleaned.trim();
+  try { JSON.parse(cleaned); return cleaned; } catch {}
+
+  // Strategy 3: Find outermost { or [ and extract balanced JSON
+  const startIdx = Math.min(
+    cleaned.indexOf('{') >= 0 ? cleaned.indexOf('{') : Infinity,
+    cleaned.indexOf('[') >= 0 ? cleaned.indexOf('[') : Infinity
+  );
+  if (startIdx < Infinity) {
+    const openChar = cleaned[startIdx];
+    const closeChar = openChar === '{' ? '}' : ']';
+    let depth = 0, inStr = false, esc = false;
+    for (let i = startIdx; i < cleaned.length; i++) {
+      const c = cleaned[i];
+      if (esc) { esc = false; continue; }
+      if (c === '\\' && inStr) { esc = true; continue; }
+      if (c === '"') { inStr = !inStr; continue; }
+      if (inStr) continue;
+      if (c === '{' || c === '[') depth++;
+      if (c === '}' || c === ']') depth--;
+      if (depth === 0) {
+        const candidate = cleaned.substring(startIdx, i + 1);
+        try { JSON.parse(candidate); return candidate; } catch {}
+        break;
+      }
+    }
+  }
+
+  return trimmed;
+}
+
 function parseLLMTranslations(rawContent, texts) {
   let translations;
   const content = typeof rawContent === 'string' ? rawContent : extractTextFromLLMValue(rawContent);
 
   try {
-    const cleaned = content.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
-    const parsed = JSON.parse(cleaned);
+    const jsonStr = extractJsonString(content);
+    const parsed = JSON.parse(jsonStr);
     if (Array.isArray(parsed)) {
       translations = parsed.map(normalizeTranslationItem);
     } else if (parsed && Array.isArray(parsed.translations)) {

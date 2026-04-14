@@ -72,8 +72,8 @@ const PROMPT_AWARE_TRANSLATION_PROVIDERS = new Set([
 const FALLBACK_TRANSLATION_CHUNK_SIZE = 3;
 const LLM_FIRST_CHUNK_ITEMS = 3;
 const LLM_FIRST_CHUNK_CHARS = 2200;
-const LLM_MAX_CHUNK_ITEMS = 5;
-const LLM_MAX_CHUNK_CHARS = 4200;
+const LLM_MAX_CHUNK_ITEMS = 8;
+const LLM_MAX_CHUNK_CHARS = 6000;
 const EXPORT_CANVAS_SCALE = 2;
 const EXPORT_PDF_CANVAS_SCALE = 1.25;
 const EXPORT_MAX_CANVAS_SIDE = 30000;
@@ -720,29 +720,38 @@ const ReaderRenderer = {
 
       const bodyTexts = bodyElements.map(el => el.dataset.original);
       const chunks = this.buildTranslationChunks(bodyTexts, translationProvider);
+      const chunkConcurrency = this.isPromptAwareTranslationProvider(translationProvider) ? 2 : 3;
 
-      for (const chunk of chunks) {
-        const chunkTexts = bodyTexts.slice(chunk.start, chunk.end);
-        const chunkEls = bodyElements.slice(chunk.start, chunk.end);
+      let nextChunkIdx = 0;
+      const processChunks = async () => {
+        while (nextChunkIdx < chunks.length) {
+          const chunkIdx = nextChunkIdx++;
+          const chunk = chunks[chunkIdx];
+          const chunkTexts = bodyTexts.slice(chunk.start, chunk.end);
+          const chunkEls = bodyElements.slice(chunk.start, chunk.end);
 
-        const translations = await this.requestTranslationsWithFallback({
-          texts: chunkTexts,
-          targetLang,
-          contentType: 'body',
-          context: translationContext,
-          provider: translationProvider,
-          cacheScope: translationCacheScope,
-          isStale
-        });
+          const translations = await this.requestTranslationsWithFallback({
+            texts: chunkTexts,
+            targetLang,
+            contentType: 'body',
+            context: translationContext,
+            provider: translationProvider,
+            cacheScope: translationCacheScope,
+            isStale
+          });
 
-        if (isStale()) return;
-        if (!translations) return;
+          if (isStale()) return;
+          if (!translations) return;
 
-        chunkEls.forEach((el, idx) => {
-          applyTranslation(el, translations[idx]);
-          updateProgress();
-        });
-      }
+          chunkEls.forEach((el, idx) => {
+            applyTranslation(el, translations[idx]);
+            updateProgress();
+          });
+        }
+      };
+
+      const workers = Array.from({ length: Math.min(chunkConcurrency, chunks.length) }, () => processChunks());
+      await Promise.all(workers);
 
       if (isStale()) return;
       this.translated = true;
