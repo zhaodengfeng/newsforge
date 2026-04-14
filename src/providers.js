@@ -6,7 +6,7 @@ const PROVIDERS = {
   openai:       { name: 'OpenAI', type: 'openai', endpoint: 'https://api.openai.com/v1/chat/completions', model: 'gpt-4o-mini', models: ['gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo'] },
   deepseek:     { name: 'DeepSeek', type: 'openai', endpoint: 'https://api.deepseek.com/v1/chat/completions', model: 'deepseek-chat', models: ['deepseek-chat', 'deepseek-reasoner'] },
   qwen:         { name: 'Qwen', type: 'openai', endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', model: 'qwen-mt-turbo', models: ['qwen-mt-plus', 'qwen-mt-turbo'] },
-  gemini:       { name: 'Gemini', type: 'openai', endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', model: 'gemini-3.1-flash-lite-preview', models: ['gemini-3.1-flash-lite-preview', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash'] },
+  gemini:       { name: 'Gemini', type: 'openai', endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', model: 'gemini-2.5-flash', models: ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.5-flash-lite', 'gemini-3.1-flash-lite-preview'] },
   glm:          { name: 'GLM', type: 'openai', endpoint: 'https://open.bigmodel.cn/api/paas/v4/chat/completions', model: 'glm-4-flash', models: ['glm-4-plus', 'glm-4-flash'] },
   kimi:         { name: 'Kimi', type: 'openai', endpoint: 'https://api.moonshot.cn/v1/chat/completions', model: 'moonshot-v1-32k', models: ['moonshot-v1-32k', 'moonshot-v1-128k'] },
   openrouter:   { name: 'OpenRouter', type: 'openai', endpoint: 'https://openrouter.ai/api/v1/chat/completions', model: 'gpt-oss-120b:free', models: ['gpt-oss-120b', 'gpt-oss-120b:free', 'gemini-3.1-flash-lite-preview'] },

@@ -542,6 +542,15 @@ function formatTranslationError(provider, error) {
   }
 
   if (
+    lower.includes('503') ||
+    lower.includes('unavailable') ||
+    lower.includes('overloaded') ||
+    lower.includes('over capacity')
+  ) {
+    return `${providerName} 服务繁忙（503），请稍后重试，或切换到其他模型。`;
+  }
+
+  if (
     lower.includes('model') &&
     (
       lower.includes('not found') ||
@@ -798,28 +807,39 @@ async function openaiTranslate(texts, targetLang, langName, provider, configOver
         { role: 'user', content: `${prompt.systemPrompt}\n\n${prompt.userPrompt}` }
       ];
 
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({
-      model,
-      messages,
-      temperature: 0.3
-    })
+  const body = JSON.stringify({
+    model,
+    messages,
+    temperature: 0.3
   });
 
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`API error ${response.status}: ${err.substring(0, 200)}`);
-  }
+  const maxRetries = 3;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body
+    });
 
-  const data = await response.json();
-  const content = data.choices?.[0]?.message?.content;
-  if (!content) throw new Error('API returned empty response');
-  return { translations: parseLLMTranslations(content, texts) };
+    if (response.ok) {
+      const data = await response.json();
+      const content = data.choices?.[0]?.message?.content;
+      if (!content) throw new Error('API returned empty response');
+      return { translations: parseLLMTranslations(content, texts) };
+    }
+
+    const errText = await response.text();
+    const isRetryable = response.status === 503 || response.status === 529 || /unavailable|overloaded/i.test(errText);
+    if (attempt < maxRetries && isRetryable) {
+      await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt)));
+      continue;
+    }
+
+    throw new Error(`API error ${response.status}: ${errText.substring(0, 200)}`);
+  }
 }
 
 // ============================================
