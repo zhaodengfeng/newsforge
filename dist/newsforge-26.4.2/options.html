@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NewsForge Settings</title>
+  <style>
+    :root {
+      --bg: #faf8f5;
+      --surface: #ffffff;
+      --text: #1a1815;
+      --text-secondary: #6b6560;
+      --text-tertiary: #a39e98;
+      --accent: #c45d3e;
+      --accent-hover: #a84d32;
+      --accent-light: rgba(196, 93, 62, 0.08);
+      --accent-glow: rgba(196, 93, 62, 0.15);
+      --border: #e8e4df;
+      --border-subtle: #f0ece7;
+      --radius: 10px;
+      --radius-sm: 6px;
+      --shadow-sm: 0 1px 2px rgba(26, 24, 21, 0.04);
+      --shadow: 0 2px 8px rgba(26, 24, 21, 0.06), 0 1px 2px rgba(26, 24, 21, 0.04);
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+      line-height: 1.5;
+    }
+
+    .topbar {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 28px;
+      height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .topbar::after {
+      content: '';
+      position: absolute;
+      bottom: -1px;
+      left: 28px;
+      right: 28px;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      opacity: 0.3;
+    }
+
+    .topbar-title {
+      font-family: Georgia, 'Times New Roman', serif;
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--text);
+      letter-spacing: -0.3px;
+    }
+
+    .topbar-title span { color: var(--accent); }
+
+    .save-status {
+      font-size: 12px;
+      color: var(--accent);
+      font-weight: 500;
+      opacity: 0;
+      transform: translateY(4px);
+      transition: all 0.3s ease;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .save-status.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .save-status svg { width: 14px; height: 14px; }
+
+    .container {
+      max-width: 560px;
+      margin: 0 auto;
+      padding: 32px 24px 64px;
+    }
+
+    .section { margin-bottom: 32px; }
+
+    .section-header { margin-bottom: 14px; padding-left: 4px; }
+
+    .section-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      color: var(--text-tertiary);
+      font-weight: 600;
+    }
+
+    .section-desc {
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-top: 4px;
+      font-style: italic;
+    }
+
+    .card {
+      background: var(--surface);
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      overflow: hidden;
+      transition: border-color 0.2s;
+    }
+
+    .card:hover { border-color: #d4cfc8; }
+
+    .config-card { padding: 20px; }
+
+    .config-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 18px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .config-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .config-subtitle {
+      font-size: 11px;
+      color: var(--text-tertiary);
+      margin-top: 2px;
+    }
+
+    .field { margin-bottom: 16px; }
+    .field:last-child { margin-bottom: 0; }
+
+    .field-label {
+      display: block;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      margin-bottom: 6px;
+    }
+
+    .field-hint {
+      font-size: 11px;
+      color: var(--text-tertiary);
+      margin-top: 5px;
+      font-style: italic;
+    }
+
+    .input {
+      width: 100%;
+      padding: 11px 14px;
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-family: inherit;
+      color: var(--text);
+      background: var(--bg);
+      outline: none;
+      transition: all 0.2s ease;
+    }
+
+    .input:focus {
+      border-color: var(--accent);
+      background: var(--surface);
+      box-shadow: 0 0 0 3px var(--accent-light);
+    }
+
+    .input::placeholder { color: var(--text-tertiary); }
+
+    select.input {
+      cursor: pointer;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23a39e98' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 12px center;
+      padding-right: 36px;
+    }
+
+    .free-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 600;
+      background: rgba(16, 163, 127, 0.08);
+      color: #10a37f;
+    }
+
+    .no-config {
+      text-align: center;
+      padding: 32px 20px;
+      color: var(--text-tertiary);
+      font-size: 13px;
+    }
+
+    .no-config svg {
+      width: 32px;
+      height: 32px;
+      color: #10a37f;
+      margin-bottom: 12px;
+    }
+
+    .btn-save {
+      width: 100%;
+      padding: 14px 24px;
+      background: var(--text);
+      color: var(--surface);
+      border: none;
+      border-radius: var(--radius);
+      font-size: 13px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .btn-save::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+      opacity: 0;
+      transition: opacity 0.25s ease;
+    }
+
+    .btn-save:hover::before { opacity: 1; }
+    .btn-save:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(26,24,21,0.12); }
+    .btn-save:active { transform: translateY(0); }
+    .btn-save span, .btn-save svg { position: relative; z-index: 1; }
+    .btn-save svg { width: 16px; height: 16px; }
+
+    .card-row {
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .card-row:last-child { border-bottom: none; }
+
+    .card-row-label { font-size: 14px; font-weight: 500; color: var(--text); }
+    .card-row-desc { font-size: 12px; color: var(--text-tertiary); margin-top: 2px; }
+
+    .danger-zone {
+      margin-top: 48px;
+      padding-top: 32px;
+      border-top: 1px solid var(--border);
+    }
+
+    .danger-zone .section-label { color: #b84d4d; }
+
+    .card.danger { border-color: #f0d8d8; background: #fffbfb; }
+    .card.danger:hover { border-color: #e8c4c4; }
+
+    .btn-danger {
+      padding: 8px 16px;
+      background: rgba(184, 77, 77, 0.06);
+      color: #b84d4d;
+      border: 1px solid #f0d8d8;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      font-weight: 500;
+      font-family: inherit;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .btn-danger:hover { background: rgba(184,77,77,0.12); border-color: #e8c4c4; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="topbar-title">News<span>F</span>orge Settings</div>
+    <div class="save-status" id="saveStatus">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="20 6 9 17 4 12"/>
+      </svg>
+      Saved
+    </div>
+  </div>
+
+  <div class="container">
+    <!-- Translation Provider -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-label">Translation Engine</div>
+        <div class="section-desc">Choose translation provider</div>
+      </div>
+
+      <div class="card">
+        <div class="config-card">
+          <div class="field">
+            <label class="field-label">Provider</label>
+            <select class="input" id="providerSelect">
+              <optgroup label="Free (No API Key required)">
+                <option value="google">Google Translate</option>
+                <option value="microsoft">Microsoft Translator</option>
+              </optgroup>
+              <optgroup label="OpenAI-Compatible API">
+                <option value="openai">OpenAI</option>
+                <option value="deepseek">DeepSeek</option>
+                <option value="qwen">Qwen (Alibaba)</option>
+                <option value="gemini">Gemini</option>
+                <option value="glm">GLM (Zhipu)</option>
+                <option value="minimax">MiniMax</option>
+                <option value="kimi">Kimi (Moonshot)</option>
+                <option value="xiaomi">Xiaomi</option>
+                <option value="openrouter">OpenRouter</option>
+              </optgroup>
+              <optgroup label="Other API">
+                <option value="claude">Claude (Anthropic)</option>
+                <option value="deepl">DeepL</option>
+              </optgroup>
+              <optgroup label="Custom">
+                <option value="custom_openai">Custom (OpenAI-Compatible)</option>
+                <option value="custom_claude">Custom (Claude-Compatible)</option>
+              </optgroup>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- 动态配置区域 -->
+      <div id="providerConfig" style="margin-top: 12px;"></div>
+    </div>
+
+    <!-- Target Language -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-label">Preferences</div>
+      </div>
+      <div class="card">
+        <div class="card-row">
+          <div>
+            <div class="card-row-label">Target Language</div>
+            <div class="card-row-desc">Translation output language</div>
+          </div>
+          <select class="input" id="targetLang" style="width: 150px;">
+            <option value="zh-CN">简体中文</option>
+            <option value="zh-TW">繁體中文</option>
+            <option value="ja">日本語</option>
+            <option value="ko">한국어</option>
+	            <option value="en">English</option>
+	            <option value="fr">Français</option>
+	            <option value="de">Deutsch</option>
+	            <option value="es">Español</option>
+	            <option value="ru">Русский</option>
+	            <option value="pt">Português</option>
+	            <option value="it">Italiano</option>
+	            <option value="ar">العربية</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Save -->
+    <div style="margin-top: 32px;">
+      <button class="btn-save" id="btnSave">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+          <polyline points="17 21 17 13 7 13 7 21"/>
+          <polyline points="7 3 7 8 15 8"/>
+        </svg>
+        <span>Save Settings</span>
+      </button>
+    </div>
+
+    <!-- Danger Zone -->
+    <div class="danger-zone">
+      <div class="section">
+        <div class="section-header">
+          <div class="section-label">Danger Zone</div>
+        </div>
+        <div class="card danger">
+          <div class="card-row">
+            <div>
+              <div class="card-row-label">Reading History</div>
+              <div class="card-row-desc">Permanently delete all reading records</div>
+            </div>
+            <button class="btn-danger" id="btnClearHistory">Clear</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="providers.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>

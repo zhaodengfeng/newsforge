@@ -206,7 +206,7 @@ async function handleTranslate({ texts, from, to, providerOverride, configOverri
   };
 
   try {
-    return translateWithCache({
+    return await translateWithCache({
       texts: safeTexts,
       cacheMeta,
       translateMissing: (missingTexts) => translateProvider({
@@ -274,18 +274,20 @@ async function translateWithCache({ texts, cacheMeta, translateMissing }) {
   const response = await translateMissing(misses.map(item => item.text));
   const missingTranslations = Array.isArray(response?.translations) ? response.translations : [];
 
+  const newCacheEntries = {};
   misses.forEach((item, idx) => {
     const translated = missingTranslations[idx] || '';
     translations[item.index] = translated;
     if (translated && String(translated).trim()) {
-      cache.entries[item.key] = {
+      newCacheEntries[item.key] = {
         text: translated,
         createdAt: now
       };
     }
   });
 
-  await writeTranslationCache(cache);
+  // Use merge-based write to avoid race condition with concurrent translation workers
+  await mergeTranslationCacheEntries(newCacheEntries);
   return { translations, cacheHits, cacheMisses: misses.length };
 }
 
@@ -311,11 +313,41 @@ async function writeTranslationCache(cache) {
   }
 }
 
+// Merge-based cache write: reads latest cache, merges new entries, then writes.
+// Prevents concurrent translation workers from overwriting each other's cache entries.
+// Uses debounced batching to reduce storage I/O under concurrent chunk translation.
+let _pendingCacheEntries = {};
+let _cacheFlushTimer = null;
+const CACHE_FLUSH_DELAY_MS = 2500;
+
+async function mergeTranslationCacheEntries(newEntries) {
+  if (!newEntries || Object.keys(newEntries).length === 0) return;
+  Object.assign(_pendingCacheEntries, newEntries);
+  if (_cacheFlushTimer) clearTimeout(_cacheFlushTimer);
+  _cacheFlushTimer = setTimeout(() => flushPendingCacheEntries(), CACHE_FLUSH_DELAY_MS);
+}
+
+async function flushPendingCacheEntries() {
+  _cacheFlushTimer = null;
+  const entries = _pendingCacheEntries;
+  _pendingCacheEntries = {};
+  if (Object.keys(entries).length === 0) return;
+  try {
+    const cache = await readTranslationCache();
+    Object.assign(cache.entries, entries);
+    pruneTranslationCache(cache);
+    await chrome.storage.local.set({ [TRANSLATION_CACHE_KEY]: cache });
+  } catch (error) {
+    console.warn('[NewsForge] Translation cache merge skipped:', error?.message || error);
+  }
+}
+
 function pruneTranslationCache(cache) {
   const entries = Object.entries(cache.entries || {});
   if (entries.length <= TRANSLATION_CACHE_MAX_ENTRIES) return;
   entries.sort((a, b) => (b[1]?.createdAt || 0) - (a[1]?.createdAt || 0));
-  cache.entries = Object.fromEntries(entries.slice(0, TRANSLATION_CACHE_MAX_ENTRIES));
+  // Prune to 75% capacity to avoid oscillating around the limit
+  cache.entries = Object.fromEntries(entries.slice(0, Math.floor(TRANSLATION_CACHE_MAX_ENTRIES * 0.75)));
 }
 
 function buildCacheScope(cacheScope = {}) {
@@ -411,11 +443,12 @@ function getContentTypeLabel(contentType) {
 }
 
 function buildContextBlock(context) {
+  const sanitize = (str) => String(str || '').replace(/\n/g, ' ').slice(0, 500);
   const lines = [];
-  if (context.source) lines.push(`Source: ${context.source}`);
-  if (context.title) lines.push(`Title: ${context.title}`);
-  if (context.summary) lines.push(`Standfirst: ${context.summary}`);
-  if (context.terms) lines.push(`Full-article terminology hints:\n${context.terms}`);
+  if (context.source) lines.push(`Source: ${sanitize(context.source)}`);
+  if (context.title) lines.push(`Title: ${sanitize(context.title)}`);
+  if (context.summary) lines.push(`Standfirst: ${sanitize(context.summary)}`);
+  if (context.terms) lines.push(`Full-article terminology hints:\n${String(context.terms || '').slice(0, 2000)}`);
   return lines.length ? `Context:\n${lines.join('\n')}` : '';
 }
 
@@ -457,16 +490,16 @@ Rules:
 5. For romanized Chinese, Hong Kong, Taiwanese, or other Chinese-origin personal names, infer the most appropriate Chinese-script form from the article context and known news usage when possible.
 6. Resolve surname-only or partial-name mentions against the full-name terminology hints.
 7. Keep the romanized form only as a last resort when context gives no reasonable basis for a Chinese-script rendering.
-8. Return only valid JSON.
+8. Return ONLY valid JSON — no explanations, no markdown fences, no commentary before or after the JSON.
 
-Output format:
+Output format (strictly follow this structure):
 {"translations":[{"id":0,"text":"..."}]}`
     : `You are a professional native-level news translator working into ${langName}.
 
 Translate with the standards of a high-quality news desk.
 
 Rules:
-1. Return only valid JSON.
+1. Return ONLY valid JSON — no explanations, no markdown fences, no commentary before or after the JSON.
 2. Preserve facts, numbers, dates, and attributions exactly.
 3. Keep the journalistic tone, register, and structure appropriate for news writing.
 4. Use the established target-language form for people, organizations, and places when one clearly exists; otherwise preserve the original term.
@@ -481,7 +514,7 @@ Rules:
 13. Use any provided context only to disambiguate meaning; do not introduce information not present in the segment itself.
 14. Return translations in the same order as the input.
 
-Output format:
+Output format (strictly follow this structure):
 {"translations":[{"id":0,"text":"..."},{"id":1,"text":"..."}]}`;
 
   const userPrompt = [
@@ -580,6 +613,21 @@ function formatTranslationError(provider, error) {
   return `${providerName} 翻译失败：${raw.slice(0, 180)}`;
 }
 
+function stripThinkingTokens(text) {
+  if (typeof text !== 'string') return text;
+  // Remove <think>...</think> blocks (Gemini 2.5, DeepSeek-R1, Qwen3 reasoning)
+  let cleaned = text.replace(/<think>[\s\S]*?<\/think>/gi, '');
+  // Handle <Thought>...</Thought> variant
+  cleaned = cleaned.replace(/<Thought>[\s\S]*?<\/Thought>/gi, '');
+  // Clean up any remaining orphaned tags (from nested or malformed blocks)
+  cleaned = cleaned.replace(/<\/?think>/gi, '');
+  cleaned = cleaned.replace(/<\/?Thought>/gi, '');
+  // Handle unclosed thinking blocks (model cut off mid-thinking)
+  cleaned = cleaned.replace(/<think>[\s\S]*$/gi, '');
+  cleaned = cleaned.replace(/<Thought>[\s\S]*$/gi, '');
+  return cleaned.trim();
+}
+
 function extractTextFromLLMValue(value) {
   if (value == null) return '';
   if (typeof value === 'string') return value;
@@ -655,6 +703,20 @@ function parseJsonLikeTranslationLines(content) {
 
     if (!candidate) continue;
 
+    // Try parsing as JSON object with text field (e.g., {"id":0,"text":"翻译"})
+    if (candidate.startsWith('{') && candidate.endsWith('}')) {
+      try {
+        const obj = JSON.parse(candidate.replace(/,\s*$/, ''));
+        const text = normalizeTranslationItem(obj);
+        if (text) {
+          cleaned.push(text);
+          continue;
+        }
+      } catch {
+        // fall through
+      }
+    }
+
     if ((candidate.startsWith('"') && candidate.endsWith('"')) || (candidate.startsWith('`') && candidate.endsWith('`'))) {
       try {
         const parsed = JSON.parse(candidate.replace(/^`|`$/g, '"'));
@@ -670,6 +732,8 @@ function parseJsonLikeTranslationLines(content) {
     candidate = candidate.replace(/^"+|"+$/g, '').trim();
     if (!candidate) continue;
     if (/^[\[\]\{\},:]+$/.test(candidate)) continue;
+    // Skip lines that look like JSON keys/metadata rather than translations
+    if (/^"?(id|text|translation|index)"?\s*:/.test(candidate)) continue;
     cleaned.push(candidate);
   }
 
@@ -688,25 +752,34 @@ function extractJsonString(content) {
   cleaned = cleaned.trim();
   try { JSON.parse(cleaned); return cleaned; } catch {}
 
-  // Strategy 3: Find outermost { or [ and extract balanced JSON
+  // Strategy 3: Strip any non-JSON prefix text (e.g., "Here is the translation:\n{...}")
+  const prefixStripped = trimmed.replace(/^[^{[]+/, '').trim();
+  if (prefixStripped !== trimmed) {
+    try { JSON.parse(prefixStripped); return prefixStripped; } catch {}
+  }
+
+  // Strategy 4: Find outermost { or [ and extract balanced JSON
+  const source = cleaned.length < trimmed.length ? cleaned : trimmed;
   const startIdx = Math.min(
-    cleaned.indexOf('{') >= 0 ? cleaned.indexOf('{') : Infinity,
-    cleaned.indexOf('[') >= 0 ? cleaned.indexOf('[') : Infinity
+    source.indexOf('{') >= 0 ? source.indexOf('{') : Infinity,
+    source.indexOf('[') >= 0 ? source.indexOf('[') : Infinity
   );
   if (startIdx < Infinity) {
-    const openChar = cleaned[startIdx];
+    const openChar = source[startIdx];
     const closeChar = openChar === '{' ? '}' : ']';
-    let depth = 0, inStr = false, esc = false;
-    for (let i = startIdx; i < cleaned.length; i++) {
-      const c = cleaned[i];
-      if (esc) { esc = false; continue; }
-      if (c === '\\' && inStr) { esc = true; continue; }
-      if (c === '"') { inStr = !inStr; continue; }
-      if (inStr) continue;
+    let depth = 0, inStr = false;
+    for (let i = startIdx; i < source.length; i++) {
+      const c = source[i];
+      if (inStr) {
+        if (c === '\\') { i++; continue; } // Skip escaped character entirely
+        if (c === '"') { inStr = false; }
+        continue;
+      }
+      if (c === '"') { inStr = true; continue; }
       if (c === '{' || c === '[') depth++;
       if (c === '}' || c === ']') depth--;
       if (depth === 0) {
-        const candidate = cleaned.substring(startIdx, i + 1);
+        const candidate = source.substring(startIdx, i + 1);
         try { JSON.parse(candidate); return candidate; } catch {}
         break;
       }
@@ -718,7 +791,11 @@ function extractJsonString(content) {
 
 function parseLLMTranslations(rawContent, texts) {
   let translations;
-  const content = typeof rawContent === 'string' ? rawContent : extractTextFromLLMValue(rawContent);
+  let content = typeof rawContent === 'string' ? rawContent : extractTextFromLLMValue(rawContent);
+  // Strip thinking tokens from reasoning models (Gemini 2.5, DeepSeek-R1, Qwen3, etc.)
+  content = stripThinkingTokens(content);
+  // Strip BOM and normalize whitespace
+  content = content.replace(/^\uFEFF/, '').trim();
 
   try {
     const jsonStr = extractJsonString(content);
@@ -733,11 +810,19 @@ function parseLLMTranslations(rawContent, texts) {
   } catch {
     translations = parseJsonLikeTranslationLines(content);
     if (translations.length === 0) {
-      translations = content.split('\n').map(line => line.trim()).filter(Boolean);
+      // Last resort: split by newlines but filter out obvious junk
+      translations = content.split('\n')
+        .map(line => line.trim())
+        .filter(line => line && !/^[\[\]\{\},:]+$/.test(line) && !/^```/.test(line))
+        .map(line => line.replace(/^["'`]+|["'`]+$/g, '').trim())
+        .filter(Boolean);
     }
   }
 
   if (!Array.isArray(translations)) translations = [normalizeTranslationItem(translations)];
+  if (translations.length !== texts.length) {
+    console.warn(`[NewsForge] Translation count mismatch: expected ${texts.length}, got ${translations.length}`);
+  }
   while (translations.length < texts.length) translations.push('');
   return translations.slice(0, texts.length);
 }
@@ -747,20 +832,44 @@ function parseLLMTranslations(rawContent, texts) {
 // ============================================
 async function googleTranslate(texts, targetLang) {
   const lang = targetLang === 'zh-TW' ? 'zh-TW' : targetLang === 'zh-CN' ? 'zh-CN' : targetLang;
+  const concurrency = 5;
+  const translations = new Array(texts.length);
 
-  const translations = await Promise.all(texts.map(async (text) => {
-    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${lang}&dt=t&q=${encodeURIComponent(text)}`;
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error(`Google Translate error: ${resp.status}`);
-    const data = await resp.json();
-    let result = '';
-    if (data && data[0]) {
-      for (const part of data[0]) {
-        if (part && part[0]) result += part[0];
+  for (let i = 0; i < texts.length; i += concurrency) {
+    const batch = texts.slice(i, i + concurrency);
+    const results = await Promise.all(batch.map(async (text) => {
+      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${lang}&dt=t&q=${encodeURIComponent(text)}`;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const resp = await fetch(url);
+          if (!resp.ok) {
+            if (attempt < 2 && (resp.status === 429 || resp.status >= 500)) {
+              await new Promise(r => setTimeout(r, 500 * Math.pow(2, attempt) + Math.random() * 500));
+              continue;
+            }
+            throw new Error(`Google Translate error: ${resp.status}`);
+          }
+          const data = await resp.json();
+          let result = '';
+          if (data && data[0]) {
+            for (const part of data[0]) {
+              if (part && part[0]) result += part[0];
+            }
+          }
+          return result || text;
+        } catch (err) {
+          if (attempt < 2) {
+            await new Promise(r => setTimeout(r, 500 * Math.pow(2, attempt) + Math.random() * 500));
+            continue;
+          }
+          console.warn('[NewsForge] Google Translate item failed:', err.message);
+          return text; // Return original on final failure
+        }
       }
-    }
-    return result || text;
-  }));
+      return text;
+    }));
+    results.forEach((r, idx) => { translations[i + idx] = r; });
+  }
 
   return { translations };
 }
@@ -770,57 +879,98 @@ async function googleTranslate(texts, targetLang) {
 // ============================================
 let msToken = null;
 let msTokenExpiry = 0;
+let msTokenPromise = null;
 
 async function getMicrosoftToken() {
   if (msToken && Date.now() < msTokenExpiry) return msToken;
 
-  // Try restoring from session storage (survives SW restarts)
-  if (!msToken) {
-    const stored = await chrome.storage.session?.get(['msToken', 'msTokenExpiry']);
-    if (stored?.msToken && stored.msTokenExpiry && Date.now() < stored.msTokenExpiry) {
-      msToken = stored.msToken;
-      msTokenExpiry = stored.msTokenExpiry;
-      return msToken;
-    }
-  }
+  // Deduplicate concurrent token fetch requests
+  if (msTokenPromise) return msTokenPromise;
 
-  try {
-    const authResp = await fetch('https://edge.microsoft.com/translate/auth');
-    if (!authResp.ok) throw new Error('Auth failed');
-    msToken = await authResp.text();
-    msTokenExpiry = Date.now() + 8 * 60 * 1000;
-    // Persist to session storage
-    chrome.storage.session?.set({ msToken, msTokenExpiry }).catch(() => {});
-    return msToken;
-  } catch (e) {
-    throw new Error('Microsoft Translator auth failed, please try again or switch to another engine');
-  }
+  msTokenPromise = (async () => {
+    try {
+      // Try restoring from session storage (survives SW restarts)
+      if (!msToken) {
+        const stored = await chrome.storage.session?.get(['msToken', 'msTokenExpiry']);
+        if (stored?.msToken && stored.msTokenExpiry && Date.now() < stored.msTokenExpiry) {
+          msToken = stored.msToken;
+          msTokenExpiry = stored.msTokenExpiry;
+          return msToken;
+        }
+      }
+
+      const authResp = await fetch('https://edge.microsoft.com/translate/auth');
+      if (!authResp.ok) throw new Error('Auth failed');
+      msToken = await authResp.text();
+      msTokenExpiry = Date.now() + 8 * 60 * 1000;
+      chrome.storage.session?.set({ msToken, msTokenExpiry }).catch(() => {});
+      return msToken;
+    } catch (e) {
+      throw new Error('Microsoft Translator auth failed, please try again or switch to another engine');
+    } finally {
+      msTokenPromise = null;
+    }
+  })();
+
+  return msTokenPromise;
 }
 
 async function microsoftTranslate(texts, targetLang) {
   const lang = targetLang === 'zh-CN' ? 'zh-Hans' : targetLang === 'zh-TW' ? 'zh-Hant' : targetLang;
+  const body = JSON.stringify(texts.map(t => ({ text: t })));
 
-  const token = await getMicrosoftToken();
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const token = await getMicrosoftToken();
+    const response = await fetch(`https://api.cognitive.microsofttranslator.com/translate?api-version=3.0&to=${lang}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body
+    });
 
-  const body = texts.map(t => ({ text: t }));
-  const response = await fetch(`https://api.cognitive.microsofttranslator.com/translate?api-version=3.0&to=${lang}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`
-    },
-    body: JSON.stringify(body)
-  });
+    if (response.ok) {
+      const data = await response.json();
+      const translations = data.map(d => d.translations?.[0]?.text || '');
+      return { translations };
+    }
 
-  if (!response.ok) {
+    // On auth failure, invalidate token and retry once
+    if (response.status === 401 && attempt === 0) {
+      msToken = null;
+      msTokenExpiry = 0;
+      chrome.storage.session?.remove(['msToken', 'msTokenExpiry']).catch(() => {});
+      continue;
+    }
+
     msToken = null;
-    chrome.storage.session?.remove('msToken').catch(() => {});
+    chrome.storage.session?.remove(['msToken', 'msTokenExpiry']).catch(() => {});
     throw new Error(`Microsoft Translator error: ${response.status}`);
   }
+}
 
-  const data = await response.json();
-  const translations = data.map(d => d.translations?.[0]?.text || '');
-  return { translations };
+// Providers/models that reliably support response_format: {"type":"json_object"}
+const JSON_MODE_PROVIDERS = new Set(['openai', 'gemini', 'glm', 'kimi']);
+
+function supportsJsonMode(provider, model) {
+  if (JSON_MODE_PROVIDERS.has(provider)) return true;
+  // OpenRouter: only OpenAI models reliably support JSON mode through the proxy.
+  // Google Gemini/Gemma via OpenRouter may produce garbled output when
+  // response_format is set — especially thinking models (2.5 series) and free-tier models.
+  if (provider === 'openrouter') {
+    const m = (model || '').toLowerCase();
+    return m.includes('openai/');
+  }
+  // DeepSeek: only deepseek-chat supports JSON mode; deepseek-reasoner does not
+  if (provider === 'deepseek') {
+    return (model || '').toLowerCase() === 'deepseek-chat';
+  }
+  // Qwen: non-MT models support JSON mode
+  if (provider === 'qwen') {
+    return !(typeof model === 'string' && model.startsWith('qwen-mt-'));
+  }
+  return false;
 }
 
 // ============================================
@@ -845,34 +995,47 @@ async function openaiTranslate(texts, targetLang, langName, provider, configOver
         { role: 'user', content: `${prompt.systemPrompt}\n\n${prompt.userPrompt}` }
       ];
 
-  const body = JSON.stringify({
+  const requestBody = {
     model,
     messages,
     temperature: 0.3
-  });
+  };
+
+  // Enable JSON mode for compatible providers to avoid garbled/mixed output
+  if (supportsJsonMode(provider, model)) {
+    requestBody.response_format = { type: 'json_object' };
+  }
+
+  const body = JSON.stringify(requestBody);
+
+  const fetchHeaders = {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${apiKey}`
+  };
+  if (provider === 'openrouter') {
+    fetchHeaders['HTTP-Referer'] = 'https://github.com/zhaodengfeng/newsforge';
+    fetchHeaders['X-Title'] = 'NewsForge';
+  }
 
   const maxRetries = 3;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const response = await fetch(endpoint, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
+      headers: fetchHeaders,
       body
     });
 
     if (response.ok) {
       const data = await response.json();
       const content = data.choices?.[0]?.message?.content;
-      if (!content) throw new Error('API returned empty response');
+      if (typeof content !== 'string' || !content.trim()) throw new Error('API returned empty response');
       return { translations: parseLLMTranslations(content, texts) };
     }
 
     const errText = await response.text();
-    const isRetryable = response.status === 503 || response.status === 529 || /unavailable|overloaded/i.test(errText);
+    const isRetryable = response.status === 503 || response.status === 529 || response.status === 429 || /unavailable|overloaded|rate.?limit/i.test(errText);
     if (attempt < maxRetries && isRetryable) {
-      await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt)));
+      await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt) + Math.random() * 1000));
       continue;
     }
 
@@ -893,33 +1056,46 @@ async function claudeTranslate(texts, targetLang, langName, provider, configOver
   if (!endpoint) throw new Error('Please configure API Endpoint in settings');
   const prompt = buildNewsTranslationPrompt({ provider, model, langName, contentType, context, texts });
 
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true'
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: 4096,
-      system: prompt.systemPrompt,
-      messages: [
-        { role: 'user', content: prompt.userPrompt }
-      ]
-    })
+  const requestBody = JSON.stringify({
+    model,
+    max_tokens: 8192,
+    system: prompt.systemPrompt,
+    messages: [
+      { role: 'user', content: prompt.userPrompt }
+    ]
   });
 
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`Claude API error ${response.status}: ${err.substring(0, 200)}`);
-  }
+  const fetchHeaders = {
+    'Content-Type': 'application/json',
+    'x-api-key': apiKey,
+    'anthropic-version': '2023-06-01',
+    'anthropic-dangerous-direct-browser-access': 'true'
+  };
 
-  const data = await response.json();
-  const content = data.content?.[0]?.text || data.content;
-  if (!content) throw new Error('Claude API returned empty response');
-  return { translations: parseLLMTranslations(content, texts) };
+  const maxRetries = 3;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: fetchHeaders,
+      body: requestBody
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      const content = Array.isArray(data.content) && data.content[0]?.text ? data.content[0].text : null;
+      if (typeof content !== 'string' || !content.trim()) throw new Error('Claude API returned empty or invalid response');
+      return { translations: parseLLMTranslations(content, texts) };
+    }
+
+    const errText = await response.text();
+    const isRetryable = response.status === 503 || response.status === 529 || response.status === 429 || /overloaded|rate.?limit/i.test(errText);
+    if (attempt < maxRetries && isRetryable) {
+      await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt) + Math.random() * 1000));
+      continue;
+    }
+
+    throw new Error(`Claude API error ${response.status}: ${errText.substring(0, 200)}`);
+  }
 }
 
 // ============================================

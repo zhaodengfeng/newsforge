@@ -256,6 +256,18 @@
     }
     const retryCount = options?.retryCount || 0;
 
+    if (!currentAdapter) {
+      console.error('[NewsForge] No adapter available for current page');
+      const toast = document.createElement('div');
+      toast.className = 'nf-toast';
+      toast.textContent = 'Error: Page adapter not initialized';
+      if (document.body) {
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 3000);
+      }
+      return;
+    }
+
     let paragraphs;
     try {
       paragraphs = currentAdapter.getParagraphs();
@@ -347,6 +359,7 @@
         console.error('[NewsForge] openReader unhandled error:', err);
       });
       sendResponse({ ok: true });
+      return;
     }
     if (msg.type === 'open_reader_translate') {
       syncAdapterToCurrentURL(true);
@@ -354,6 +367,7 @@
         console.error('[NewsForge] openReader unhandled error:', err);
       });
       sendResponse({ ok: true });
+      return;
     }
     if (msg.type === 'ping') {
       const isArticle = evaluatePageState(true);
@@ -362,6 +376,7 @@
         isArticle,
         adapter: currentAdapter?.name
       });
+      return;
     }
   });
 

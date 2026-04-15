@@ -70,10 +70,10 @@ const PROMPT_AWARE_TRANSLATION_PROVIDERS = new Set([
 ]);
 
 const FALLBACK_TRANSLATION_CHUNK_SIZE = 5;
-const LLM_FIRST_CHUNK_ITEMS = 3;
-const LLM_FIRST_CHUNK_CHARS = 2200;
-const LLM_MAX_CHUNK_ITEMS = 10;
-const LLM_MAX_CHUNK_CHARS = 8000;
+const LLM_FIRST_CHUNK_ITEMS = 5;
+const LLM_FIRST_CHUNK_CHARS = 4000;
+const LLM_MAX_CHUNK_ITEMS = 15;
+const LLM_MAX_CHUNK_CHARS = 12000;
 const EXPORT_CANVAS_SCALE = 2;
 const EXPORT_PDF_CANVAS_SCALE = 1.25;
 const EXPORT_MAX_CANVAS_SIDE = 30000;
@@ -492,16 +492,23 @@ const ReaderRenderer = {
 
   hasIncompleteTranslations(texts, translations) {
     if (!Array.isArray(translations) || translations.length < texts.length) return true;
-    return texts.some((text, idx) => String(text || '').trim() && !String(translations[idx] || '').trim());
+    const total = texts.filter(t => String(t || '').trim()).length;
+    if (total === 0) return false;
+    const emptyCount = texts.filter((text, idx) =>
+      String(text || '').trim() && !String(translations[idx] || '').trim()
+    ).length;
+    // Tolerate up to 30% empty translations before triggering binary split fallback
+    return emptyCount / total > 0.3;
   },
 
-  async requestTranslationsWithFallback({ texts, targetLang, contentType, context, provider, cacheScope, isStale }) {
+  async requestTranslationsWithFallback({ texts, targetLang, contentType, context, provider, cacheScope, isStale, _depth = 0 }) {
     const response = await chrome.runtime.sendMessage({
       type: 'translate',
       data: {
         texts,
         from: 'en',
         to: targetLang,
+        providerOverride: provider,
         contentType,
         context,
         cacheScope
@@ -516,7 +523,9 @@ const ReaderRenderer = {
       return translations.slice(0, texts.length);
     }
 
-    if (this.isPromptAwareTranslationProvider(provider) && texts.length > 1) {
+    // Binary split fallback with depth limit to prevent excessive API calls
+    const MAX_SPLIT_DEPTH = 4;
+    if (this.isPromptAwareTranslationProvider(provider) && texts.length > 1 && _depth < MAX_SPLIT_DEPTH) {
       const mid = Math.ceil(texts.length / 2);
       const left = await this.requestTranslationsWithFallback({
         texts: texts.slice(0, mid),
@@ -525,7 +534,8 @@ const ReaderRenderer = {
         context,
         provider,
         cacheScope,
-        isStale
+        isStale,
+        _depth: _depth + 1
       });
       if (isStale() || !left) return null;
 
@@ -536,7 +546,8 @@ const ReaderRenderer = {
         context,
         provider,
         cacheScope,
-        isStale
+        isStale,
+        _depth: _depth + 1
       });
       if (isStale() || !right) return null;
       return [...left, ...right];
@@ -673,6 +684,8 @@ const ReaderRenderer = {
 
     const applyTranslation = (el, translation) => {
       if (!el || !translation || isStale()) return;
+      if (!el.isConnected) return; // Skip detached elements
+      if (el.classList.contains('nf-translated')) return; // Prevent double-translation
       const isTitleLike = (
         el.classList.contains('nf-title') ||
         el.classList.contains('nf-heading') ||
@@ -695,8 +708,11 @@ const ReaderRenderer = {
     const updateProgress = () => {
       if (isStale()) return;
       completed++;
-      btn.querySelector('span').textContent = `Translating ${completed}/${total}...`;
-      if (progressBar) progressBar.style.width = Math.min((completed / total) * 100, 100) + '%';
+      const currentBtn = overlay.querySelector('.nf-btn-translate');
+      if (currentBtn?.isConnected) {
+        currentBtn.querySelector('span').textContent = `Translating ${completed}/${total}...`;
+      }
+      if (progressBar?.isConnected) progressBar.style.width = Math.min((completed / total) * 100, 100) + '%';
     };
 
     try {
@@ -726,8 +742,10 @@ const ReaderRenderer = {
 
         let nextChunkIdx = 0;
         const processChunks = async () => {
-          while (nextChunkIdx < chunks.length) {
-            const chunkIdx = nextChunkIdx++;
+          while (true) {
+            const chunkIdx = nextChunkIdx;
+            if (chunkIdx >= chunks.length) break;
+            nextChunkIdx = chunkIdx + 1; // Claim this chunk atomically (single-threaded JS)
             const chunk = chunks[chunkIdx];
             const chunkTexts = bodyTexts.slice(chunk.start, chunk.end);
             const chunkEls = bodyElements.slice(chunk.start, chunk.end);

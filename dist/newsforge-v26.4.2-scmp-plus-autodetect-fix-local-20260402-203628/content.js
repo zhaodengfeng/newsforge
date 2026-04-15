@@ -1,0 +1,392 @@
+// NewsForge Content Script - 主入口
+(function () {
+  'use strict';
+
+  let currentAdapter = null;
+  let floatIcon = null;
+  let adapters = [];
+  let _iconRecoveryTimer = null;
+  let currentPageURL = '';
+  let articleDetectionObserver = null;
+  let articleDetectionPollTimer = null;
+  let articleDetectionStopTimer = null;
+
+  function createAdapters() {
+    try {
+      adapters = [
+        new BloombergAdapter(),
+        new WSJAdapter(),
+        new NYTimesAdapter(),
+        new FTAdapter(),
+        new EconomistAdapter(),
+        new SCMPAdapter()
+      ];
+      console.log('[NewsForge] Adapters created:', adapters.map(a => a?.name || 'UNDEFINED'));
+      return true;
+    } catch (e) {
+      console.error('[NewsForge] Error creating adapters:', e);
+      return false;
+    }
+  }
+
+  function getPageURL() {
+    try { if (window.location && window.location.href) return window.location.href; } catch (e) {}
+    try { if (document.URL) return document.URL; } catch (e) {}
+    try { if (document.location && document.location.href) return document.location.href; } catch (e) {}
+    return '';
+  }
+
+  function selectAdapter(url) {
+    url = url || getPageURL();
+    console.log('[NewsForge] Selecting adapter for URL:', url);
+
+    if (!url || url === 'about:blank' || url.startsWith('chrome-extension')) {
+      console.warn('[NewsForge] Invalid URL, skipping adapter selection');
+      return;
+    }
+
+    currentAdapter = null;
+    for (let i = 0; i < adapters.length; i++) {
+      const a = adapters[i];
+      if (!a || typeof a.matches !== 'function') continue;
+      if (a.matches(url)) {
+        currentAdapter = a;
+        currentAdapter._pageURL = url;
+        console.log('[NewsForge] Selected:', a.name);
+        break;
+      }
+    }
+
+    if (!currentAdapter) {
+      console.log('[NewsForge] No adapter matched, using BaseAdapter');
+      currentAdapter = new BaseAdapter();
+      currentAdapter._pageURL = url;
+    }
+  }
+
+  function syncAdapterToCurrentURL(force) {
+    const url = getPageURL();
+    if (!url) return false;
+    if (!force && url === currentPageURL && currentAdapter) return false;
+    currentPageURL = url;
+    selectAdapter(url);
+    return true;
+  }
+
+  function evaluatePageState(force) {
+    syncAdapterToCurrentURL(force);
+    if (currentAdapter && currentAdapter.isArticlePage()) {
+      injectFloatIcon();
+      return true;
+    }
+    return false;
+  }
+
+  function onReady() {
+    startArticleDetection();
+
+    const delays = [1500, 3500, 6000];
+    let injected = false;
+    delays.forEach(delay => {
+      setTimeout(() => {
+        if (injected) return;
+        if (evaluatePageState()) {
+          console.log('[NewsForge] Article page detected, injecting icon (after ' + delay + 'ms)');
+          injected = true;
+        }
+      }, delay);
+    });
+  }
+
+  function stopArticleDetection() {
+    if (articleDetectionObserver) {
+      articleDetectionObserver.disconnect();
+      articleDetectionObserver = null;
+    }
+    if (articleDetectionPollTimer) {
+      clearInterval(articleDetectionPollTimer);
+      articleDetectionPollTimer = null;
+    }
+    if (articleDetectionStopTimer) {
+      clearTimeout(articleDetectionStopTimer);
+      articleDetectionStopTimer = null;
+    }
+  }
+
+  function startArticleDetection() {
+    stopArticleDetection();
+
+    const tryDetect = () => {
+      if (document.getElementById('newsforge-float')) {
+        stopArticleDetection();
+        return;
+      }
+      if (evaluatePageState(true)) {
+        console.log('[NewsForge] Late article detection succeeded');
+        stopArticleDetection();
+      }
+    };
+
+    articleDetectionPollTimer = setInterval(tryDetect, 1200);
+    articleDetectionStopTimer = setTimeout(stopArticleDetection, 30000);
+
+    if (document.body) {
+      articleDetectionObserver = new MutationObserver(() => {
+        tryDetect();
+      });
+      articleDetectionObserver.observe(document.body, {
+        childList: true,
+        subtree: true
+      });
+    }
+  }
+
+  function injectFloatIcon() {
+    if (document.getElementById('newsforge-float')) return;
+
+    stopArticleDetection();
+
+    floatIcon = document.createElement('div');
+    floatIcon.id = 'newsforge-float';
+    floatIcon.className = 'nf-float-icon';
+    floatIcon.title = 'NewsForge - Reader Mode';
+    floatIcon.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+      <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+    </svg>`;
+
+    floatIcon.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      console.log('[NewsForge] icon clicked, active:', ReaderRenderer.active);
+      if (ReaderRenderer.active) {
+        ReaderRenderer.close();
+        return;
+      }
+      const staleOverlay = document.getElementById('newsforge-reader');
+      if (staleOverlay) staleOverlay.remove();
+      ReaderRenderer.active = false;
+      ReaderRenderer.translated = false;
+      ReaderRenderer.overlay = null;
+      floatIcon.classList.remove('nf-hidden');
+      console.log('[NewsForge] state reset, calling openReader');
+      openReader();
+    }, true);
+
+    document.documentElement.appendChild(floatIcon);
+
+    // MutationObserver: keep icon as last child of <html>
+    const _iconGuard = new MutationObserver(() => {
+      if (!floatIcon) return;
+      if (!document.documentElement.contains(floatIcon)) {
+        document.documentElement.appendChild(floatIcon);
+        return;
+      }
+      if (document.documentElement.lastElementChild !== floatIcon) {
+        document.documentElement.appendChild(floatIcon);
+      }
+      if (!ReaderRenderer.active) {
+        if (floatIcon.classList.contains('nf-hidden')) {
+          floatIcon.classList.remove('nf-hidden');
+        }
+      }
+    });
+    _iconGuard.observe(document.documentElement, { childList: true });
+    _iconGuard.observe(document.body, { childList: true, subtree: false });
+
+    // Fallback: periodic recovery (save ID for cleanup)
+    _iconRecoveryTimer = setInterval(() => {
+      if (!floatIcon) return;
+      if (!document.documentElement.contains(floatIcon)) {
+        document.documentElement.appendChild(floatIcon);
+      }
+      if (document.documentElement.lastElementChild !== floatIcon) {
+        document.documentElement.appendChild(floatIcon);
+      }
+      if (!ReaderRenderer.active) {
+        if (floatIcon.classList.contains('nf-hidden')) {
+          floatIcon.classList.remove('nf-hidden');
+        }
+      }
+    }, 2000);
+  }
+
+  function openReader(options) {
+    const autoTranslate = options?.autoTranslate || false;
+    console.log('[NewsForge] openReader called, active:', ReaderRenderer.active);
+    if (ReaderRenderer.active) return;
+    if (ReaderRenderer.overlay) {
+      ReaderRenderer.overlay.remove();
+      ReaderRenderer.overlay = null;
+    }
+    const retryCount = options?.retryCount || 0;
+
+    let paragraphs;
+    try {
+      paragraphs = currentAdapter.getParagraphs();
+      console.log('[NewsForge] paragraphs:', paragraphs.length);
+    } catch (e) {
+      console.error('[NewsForge] getParagraphs error:', e);
+      if (retryCount < 2) {
+        setTimeout(() => openReader({ retryCount: retryCount + 1, autoTranslate }), 2000);
+        return;
+      }
+      const toast = document.createElement('div');
+      toast.className = 'nf-toast';
+      toast.textContent = 'Error extracting article: ' + (e.message || '');
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 4000);
+      return;
+    }
+    console.log('[NewsForge] Paragraphs found:', paragraphs.length);
+
+    if (paragraphs.length === 0) {
+      if (retryCount < 2) {
+        console.log('[NewsForge] No content yet, retrying in 2s...');
+        setTimeout(() => openReader({ retryCount: retryCount + 1, autoTranslate }), 2000);
+        return;
+      }
+      const toast = document.createElement('div');
+      toast.className = 'nf-toast';
+      toast.textContent = 'Failed to extract article content';
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 3000);
+      return;
+    }
+
+    if (floatIcon) floatIcon.classList.add('nf-hidden');
+
+    // Save the original onClose to chain cleanup
+    ReaderRenderer.onClose = () => {
+      if (floatIcon) floatIcon.classList.remove('nf-hidden');
+      // Disconnect overlay guard when reader closes
+      if (window._nfOverlayGuard) {
+        window._nfOverlayGuard.disconnect();
+        window._nfOverlayGuard = null;
+      }
+    };
+
+    try {
+      ReaderRenderer.render({
+        title: currentAdapter.getTitle(),
+        standfirst: currentAdapter.getStandfirst(),
+        author: currentAdapter.getAuthor(),
+        date: currentAdapter.getPublishDate(),
+        source: currentAdapter.name.charAt(0).toUpperCase() + currentAdapter.name.slice(1),
+        url: currentAdapter._pageURL || getPageURL(),
+        paragraphs: paragraphs,
+        featuredImage: currentAdapter.getFeaturedImage()
+      });
+      console.log('[NewsForge] render() completed, active:', ReaderRenderer.active, 'overlay in DOM:', !!document.getElementById('newsforge-reader'));
+
+      // Auto-trigger translation if requested (from context menu "Translate")
+      if (autoTranslate) {
+        setTimeout(() => ReaderRenderer.translateAll(), 300);
+      }
+    } catch (renderErr) {
+      console.error('[NewsForge] render() error:', renderErr);
+      if (floatIcon) floatIcon.classList.remove('nf-hidden');
+      return;
+    }
+
+    // Guard: re-append overlay if page scripts remove it
+    if (!window._nfOverlayGuard) {
+      window._nfOverlayGuard = new MutationObserver(() => {
+        if (!ReaderRenderer.active || !ReaderRenderer.overlay) return;
+        if (!document.documentElement.contains(ReaderRenderer.overlay)) {
+          console.log('[NewsForge] Overlay removed externally, re-appending');
+          document.documentElement.appendChild(ReaderRenderer.overlay);
+        }
+      });
+      window._nfOverlayGuard.observe(document.documentElement, { childList: true });
+    }
+  }
+
+  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (msg.type === 'open_reader') {
+      syncAdapterToCurrentURL(true);
+      openReader();
+      sendResponse({ ok: true });
+    }
+    if (msg.type === 'open_reader_translate') {
+      syncAdapterToCurrentURL(true);
+      openReader({ autoTranslate: true });
+      sendResponse({ ok: true });
+    }
+    if (msg.type === 'ping') {
+      const isArticle = evaluatePageState(true);
+      sendResponse({
+        ok: true,
+        isArticle,
+        adapter: currentAdapter?.name
+      });
+    }
+  });
+
+  function installNavigationWatcher() {
+    if (window.__NEWSFORGE_NAV_WATCHER_INSTALLED__) return;
+    window.__NEWSFORGE_NAV_WATCHER_INSTALLED__ = true;
+
+    const handleNavigation = () => {
+      const changed = syncAdapterToCurrentURL();
+      if (!changed) return;
+      console.log('[NewsForge] URL changed, reevaluating page:', currentPageURL);
+      onReady();
+      evaluatePageState(true);
+    };
+
+    const wrapHistoryMethod = (name) => {
+      const original = history[name];
+      if (typeof original !== 'function') return;
+      history[name] = function () {
+        const result = original.apply(this, arguments);
+        setTimeout(handleNavigation, 0);
+        return result;
+      };
+    };
+
+    wrapHistoryMethod('pushState');
+    wrapHistoryMethod('replaceState');
+    window.addEventListener('popstate', handleNavigation);
+    window.addEventListener('hashchange', handleNavigation);
+  }
+
+  function init() {
+    console.log('[NewsForge] init()');
+    if (document.documentElement) {
+      document.documentElement.setAttribute('data-newsforge-ready', '1');
+    }
+
+    if (!createAdapters()) {
+      setTimeout(init, 500);
+      return;
+    }
+
+    const url = getPageURL();
+    if (url) {
+      currentPageURL = url;
+      selectAdapter(url);
+      installNavigationWatcher();
+      onReady();
+    } else {
+      console.log('[NewsForge] URL not available locally, requesting from background');
+      chrome.runtime.sendMessage({ type: 'get_tab_url' }, (resp) => {
+        if (resp && resp.url) {
+          console.log('[NewsForge] Got URL from background:', resp.url);
+          currentPageURL = resp.url;
+          selectAdapter(resp.url);
+          installNavigationWatcher();
+          onReady();
+        } else {
+          console.warn('[NewsForge] Could not obtain page URL');
+        }
+      });
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();

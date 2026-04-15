@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NewsForge</title>
+  <!-- Fonts loaded locally to avoid network delay -->
+  <style>
+    :root {
+      --bg: #faf8f5;
+      --surface: #ffffff;
+      --surface-elevated: #fffffe;
+      --text: #1a1815;
+      --text-secondary: #6b6560;
+      --text-tertiary: #a39e98;
+      --accent: #c45d3e;
+      --accent-hover: #a84d32;
+      --accent-light: rgba(196, 93, 62, 0.08);
+      --accent-glow: rgba(196, 93, 62, 0.15);
+      --border: #e8e4df;
+      --border-subtle: #f0ece7;
+      --radius: 10px;
+      --radius-sm: 6px;
+      --shadow-sm: 0 1px 2px rgba(26, 24, 21, 0.04);
+      --shadow: 0 2px 8px rgba(26, 24, 21, 0.06), 0 1px 2px rgba(26, 24, 21, 0.04);
+      --shadow-lg: 0 8px 24px rgba(26, 24, 21, 0.08), 0 2px 6px rgba(26, 24, 21, 0.04);
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      width: 320px;
+      max-height: 600px;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+      line-height: 1.5;
+    }
+
+    /* Header - Editorial masthead */
+    .header {
+      padding: 28px 24px 24px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      position: relative;
+    }
+
+    .header::after {
+      content: '';
+      position: absolute;
+      bottom: -1px;
+      left: 24px;
+      right: 24px;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      opacity: 0.4;
+    }
+
+    .masthead {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    .logo {
+      font-family: Georgia, 'Times New Roman', serif;
+      font-size: 26px;
+      font-weight: 600;
+      color: var(--text);
+      letter-spacing: -0.5px;
+    }
+
+    .logo span {
+      color: var(--accent);
+    }
+
+    .issue {
+      font-size: 10px;
+      color: var(--text-tertiary);
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    .tagline {
+      font-size: 12px;
+      color: var(--text-secondary);
+      font-style: italic;
+      font-family: Georgia, 'Times New Roman', serif;
+    }
+
+    /* Status - minimal indicator */
+    .status-bar {
+      margin: 0 24px;
+      padding: 14px 0;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .status-indicator {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--text-tertiary);
+      transition: all 0.4s ease;
+    }
+
+    .status-indicator.active {
+      background: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-light);
+      animation: status-pulse 2.5s ease-in-out infinite;
+    }
+
+    @keyframes status-pulse {
+      0%, 100% { box-shadow: 0 0 0 3px var(--accent-light); }
+      50% { box-shadow: 0 0 0 5px rgba(196, 93, 62, 0.06); }
+    }
+
+    .status-content {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .status-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text-tertiary);
+      font-weight: 500;
+    }
+
+    .status-domain {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text);
+      margin-top: 1px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* Main action */
+    .main-action {
+      padding: 20px 24px;
+    }
+
+    .btn-read {
+      width: 100%;
+      padding: 14px 20px;
+      background: var(--text);
+      color: var(--surface);
+      border: none;
+      border-radius: var(--radius);
+      font-size: 13px;
+      font-weight: 600;
+      font-family: inherit;
+      letter-spacing: 0.2px;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .btn-read::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%);
+      opacity: 0;
+      transition: opacity 0.25s ease;
+    }
+
+    .btn-read:hover:not(:disabled)::before {
+      opacity: 1;
+    }
+
+    .btn-read:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: var(--shadow-lg);
+    }
+
+    .btn-read:active:not(:disabled) {
+      transform: translateY(0);
+    }
+
+    .btn-read:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
+
+    .btn-read span,
+    .btn-read svg {
+      position: relative;
+      z-index: 1;
+    }
+
+    .btn-read svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    /* Secondary actions */
+    .secondary-actions {
+      padding: 0 24px 16px;
+      display: flex;
+      gap: 8px;
+    }
+
+    .btn-icon {
+      flex: 1;
+      padding: 10px 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      font-weight: 500;
+      font-family: inherit;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    .btn-icon:hover {
+      background: var(--accent-light);
+      border-color: var(--accent-glow);
+      color: var(--accent);
+    }
+
+    .btn-icon svg {
+      width: 14px;
+      height: 14px;
+      opacity: 0.7;
+    }
+
+    /* Divider */
+    .divider {
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--border), transparent);
+      margin: 0 24px;
+    }
+
+    /* History section */
+    .history-section {
+      padding: 16px 24px 20px;
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+
+    .section-title {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-tertiary);
+      font-weight: 600;
+    }
+
+    .history-empty {
+      text-align: center;
+      padding: 24px 0;
+      color: var(--text-tertiary);
+      font-size: 12px;
+      font-style: italic;
+    }
+
+    .history-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      margin: 0 -12px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .history-item:hover {
+      background: var(--accent-light);
+    }
+
+    .history-icon {
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      background: var(--bg);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      border: 1px solid var(--border);
+    }
+
+    .history-icon svg {
+      width: 16px;
+      height: 16px;
+      color: var(--text-secondary);
+    }
+
+    .history-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .history-title {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .history-meta {
+      font-size: 11px;
+      color: var(--text-tertiary);
+      margin-top: 2px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .history-meta span {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+    }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <div class="masthead">
+      <div class="logo">News<span>F</span>orge</div>
+      <div class="issue" id="issueVersion">v--</div>
+    </div>
+    <div class="tagline">Clear reading, deeper understanding</div>
+  </header>
+
+  <div class="status-bar">
+    <div class="status-indicator" id="statusDot"></div>
+    <div class="status-content">
+      <div class="status-label">Current Page</div>
+      <div class="status-domain" id="statusText">Detecting...</div>
+    </div>
+  </div>
+
+  <div class="main-action">
+    <button class="btn-read" id="btnRead" disabled>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+        <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+      </svg>
+      <span>Enter Reader Mode</span>
+    </button>
+  </div>
+
+  <div class="secondary-actions">
+    <button class="btn-icon" id="btnSettings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+      </svg>
+      Settings
+    </button>
+    <button class="btn-icon" id="btnHistory">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/>
+        <polyline points="12 6 12 12 16 14"/>
+      </svg>
+      History
+    </button>
+  </div>
+
+  <div class="divider"></div>
+
+  <section class="history-section">
+    <div class="section-header">
+      <div class="section-title">Recent Reads</div>
+    </div>
+    <div id="historyList">
+      <div class="history-empty">No reading history yet</div>
+    </div>
+  </section>
+
+  <script src="popup.js"></script>
+</body>
+</html>

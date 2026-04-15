@@ -405,6 +405,11 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
+      if (!response) {
+        setTestResult('error', 'No response from translation service. Check your connection or API configuration.');
+        return;
+      }
+
       if (response?.error) {
         setTestResult('error', response.error);
         return;
