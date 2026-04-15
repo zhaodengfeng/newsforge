@@ -106,6 +106,8 @@ class FTAdapter extends BaseAdapter {
     const articleEl = document.querySelector('article') || container;
     const elements = articleEl.querySelectorAll('p, h2, h3, h4, img, figure, picture');
 
+    let skipAfterMethodology = false;
+
     for (let i = 0; i < elements.length; i++) {
       const el = elements[i];
 
@@ -121,6 +123,7 @@ class FTAdapter extends BaseAdapter {
 
       // 图片：处理 img, figure, picture
       if (tagName === 'img' || tagName === 'figure' || tagName === 'picture') {
+        if (skipAfterMethodology) continue;
         const img = tagName === 'img' ? el : el.querySelector('img');
         const src = this._resolveImageSrc(img, el);
         if (!src || seen.has(src)) continue;
@@ -147,8 +150,24 @@ class FTAdapter extends BaseAdapter {
       }
 
       // 文本
-      if (el.closest('figcaption')) continue;
       const text = (el.innerText || '').trim();
+
+      // Track Methodology section: skip heading and all subsequent content until next heading
+      if (/^methodology$/i.test(text) && tagName.startsWith('h')) {
+        skipAfterMethodology = true;
+        continue;
+      }
+      if (skipAfterMethodology) {
+        if (tagName.startsWith('h')) {
+          skipAfterMethodology = false;
+        } else {
+          continue;
+        }
+      }
+
+      if (text.length < 15) continue;
+
+      if (el.closest('figcaption')) continue;
       if (text.length < 15) continue;
       if (seen.has(text)) continue;
 
@@ -189,7 +208,7 @@ class FTAdapter extends BaseAdapter {
         if (seen.has(text2)) continue;
         if (el2.closest(skipSelector)) continue;
         const t2Lower = text2.toLowerCase();
-        if (/^(managing risk|get ahead|keep up|latest on|more from the ft|related|popular in|more stories|explore the ft|try premium|myft|sign up|subscribe|newsletter|understanding the most|signed in as|edit commenting|show comments|exclusively for subscribers)/.test(t2Lower)) break;
+        if (/^(managing risk|get ahead|keep up|latest on|more from the ft|related|popular in|more stories|explore the ft|try premium|myft|sign up|subscribe|newsletter|understanding the most|signed in as|edit commenting|show comments|exclusively for subscribers|methodology)/.test(t2Lower)) break;
         if (/^exclusively for subscribers\b/i.test(text2)) continue;
         if (/^latest on\b/i.test(text2)) continue;
         if (/^recommended$/i.test(text2)) continue;
