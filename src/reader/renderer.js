@@ -388,22 +388,66 @@ const ReaderRenderer = {
       'US', 'UK', 'China', 'Chinese', 'Beijing', 'Taiwan', 'Asia', 'Europe',
       'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday',
       'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August',
-      'September', 'October', 'November', 'December'
+      'September', 'October', 'November', 'December',
+      'Reuters', 'AP', 'AFP', 'Bloomberg', 'The', 'This', 'That', 'New York',
+      'Washington', 'London', 'Tokyo', 'Paris', 'Berlin'
     ]);
     const seen = new Set();
     const terms = [];
+
+    // Pattern 1: Multi-word proper nouns (original pattern, relaxed min length)
     const namePattern = /\b(?:[A-Z][a-z]+|[A-Z]{2,})(?:[-'][A-Za-z]+)?(?:\s+(?:[A-Z][a-z]+|[A-Z]{2,})(?:[-'][A-Za-z]+)?){1,3}\b/g;
     let match;
 
-    while ((match = namePattern.exec(fullText)) && terms.length < 36) {
+    while ((match = namePattern.exec(fullText)) && terms.length < 48) {
       const term = match[0].replace(/\s+/g, ' ').trim();
-      if (term.length < 4 || term.length > 80) continue;
+      if (term.length < 3 || term.length > 80) continue;
       if (generic.has(term)) continue;
       if (/^(The|This|That|These|Those|After|Before|During|For|With|From|About|Against|According)\b/.test(term)) continue;
       const key = term.toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);
       terms.push(term);
+    }
+
+    // Pattern 2: Abbreviations/acronyms (IMF, WHO, NATO, OPEC, etc.)
+    const abbrPattern = /\b[A-Z]{2,6}\b/g;
+    while ((match = abbrPattern.exec(fullText)) && terms.length < 48) {
+      const term = match[0];
+      if (generic.has(term)) continue;
+      if (/^(US|UK|EU|UN|GDP|CEO|AI|IT|AM|PM|TV|OK|OR|ON|AT|AS|IS|IN|IF|BY|AN|NO|SO|UP|DO|AD)$/.test(term)) continue;
+      const key = term.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      terms.push(term);
+    }
+
+    // Pattern 3: Numeric entities (G7, G20, Boeing 737, Airbus A380, etc.)
+    const numericPattern = /\b(?:[A-Z][a-z]*[-\s]?\d+[A-Za-z]*|\d+[A-Z][a-z]*)\b/g;
+    while ((match = numericPattern.exec(fullText)) && terms.length < 48) {
+      const term = match[0].trim();
+      if (term.length < 2 || term.length > 30) continue;
+      const key = term.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      terms.push(term);
+    }
+
+    // Pattern 4: Single capitalized words that appear 2+ times (likely proper nouns like Tesla, Fed)
+    const singleWordCounts = {};
+    const singlePattern = /\b([A-Z][a-z]{2,})\b/g;
+    while ((match = singlePattern.exec(fullText))) {
+      const word = match[1];
+      if (generic.has(word)) continue;
+      if (/^(The|This|That|These|Those|After|Before|During|For|With|From|About|Against|According|However|Meanwhile|Although|Because|Since|While|Where|Which|Their|There|Other|Another|Every|Between|Through|Under|Would|Could|Should|People|Government|President|Minister|Market|Company|Report|According|Year|Month|Week|Day|Time|World|State|City|Part|Group|Number|First|Last|Many|Most|Much|Some|More|Very|Also|Still|Just|Even|Only|Than|Into|Over|Such|Each|Both|Made|Said|Been|Come|Back|Take|Like|Long|Just|Little|Good|Great|High|Right|Left|Well|Down|After)$/.test(word)) continue;
+      singleWordCounts[word] = (singleWordCounts[word] || 0) + 1;
+    }
+    for (const [word, count] of Object.entries(singleWordCounts)) {
+      if (count < 2 || terms.length >= 48) break;
+      const key = word.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      terms.push(word);
     }
 
     const aliases = [];
@@ -418,8 +462,8 @@ const ReaderRenderer = {
 
     return [
       terms.length ? `Full-name candidates for entity consistency: ${terms.join('; ')}` : '',
-      aliases.length ? `Alias/coreference hints, not translations: ${aliases.slice(0, 32).join('; ')}` : ''
-    ].filter(Boolean).join('\n').slice(0, 2200);
+      aliases.length ? `Alias/coreference hints, not translations: ${aliases.slice(0, 40).join('; ')}` : ''
+    ].filter(Boolean).join('\n').slice(0, 2600);
   },
 
   _hashForCache(text = '') {
@@ -741,6 +785,7 @@ const ReaderRenderer = {
         const chunkConcurrency = this.isPromptAwareTranslationProvider(translationProvider) ? 3 : 4;
 
         let nextChunkIdx = 0;
+        let chunkErrors = 0;
         const processChunks = async () => {
           while (true) {
             const chunkIdx = nextChunkIdx;
@@ -750,23 +795,38 @@ const ReaderRenderer = {
             const chunkTexts = bodyTexts.slice(chunk.start, chunk.end);
             const chunkEls = bodyElements.slice(chunk.start, chunk.end);
 
-            const translations = await this.requestTranslationsWithFallback({
-              texts: chunkTexts,
-              targetLang,
-              contentType: 'body',
-              context: translationContext,
-              provider: translationProvider,
-              cacheScope: translationCacheScope,
-              isStale
-            });
+            try {
+              const translations = await this.requestTranslationsWithFallback({
+                texts: chunkTexts,
+                targetLang,
+                contentType: 'body',
+                context: translationContext,
+                provider: translationProvider,
+                cacheScope: translationCacheScope,
+                isStale
+              });
 
-            if (isStale()) return;
-            if (!translations) return;
+              if (isStale()) return;
+              if (!translations) return;
 
-            chunkEls.forEach((el, idx) => {
-              applyTranslation(el, translations[idx]);
-              updateProgress();
-            });
+              chunkEls.forEach((el, idx) => {
+                applyTranslation(el, translations[idx]);
+                updateProgress();
+              });
+            } catch (chunkErr) {
+              if (isStale()) return;
+              chunkErrors++;
+              console.warn(`[NewsForge] Chunk ${chunkIdx} failed:`, chunkErr.message);
+              // Mark failed chunk elements as done to keep progress moving
+              chunkEls.forEach(el => {
+                el.classList.remove('nf-translating');
+                updateProgress();
+              });
+              // If too many chunks fail, stop the worker
+              if (chunkErrors > Math.ceil(chunks.length * 0.5)) {
+                throw chunkErr;
+              }
+            }
           }
         };
 

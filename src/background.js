@@ -6,6 +6,7 @@ const TRANSLATION_CACHE_KEY = 'translationCache';
 const TRANSLATION_CACHE_MAX_ENTRIES = 1200;
 const EXPORT_IMAGE_FETCH_MAX_BYTES = 15 * 1024 * 1024;
 const EXPORT_IMAGE_FETCH_TIMEOUT_MS = 12000;
+const LLM_FETCH_TIMEOUT_MS = 90000; // 90s timeout for LLM API calls
 
 // ============================================
 // 安装 & 默认设置
@@ -188,16 +189,36 @@ function arrayBufferToDataUrl(arrayBuffer, mime) {
 // 翻译路由
 // ============================================
 async function handleTranslate({ texts, from, to, providerOverride, configOverride, context, contentType, cacheScope }) {
-  const settings = await chrome.storage.local.get(['translationProvider', 'targetLang']);
-  const provider = providerOverride || settings.translationProvider || 'google';
-  const targetLang = to || settings.targetLang || 'zh-CN';
+  // One-shot settings read — avoids repeated chrome.storage.local.get calls in sub-functions
+  const settingsKeys = ['translationProvider', 'targetLang'];
+  const provider = providerOverride || 'google';
+  if (!providerOverride) settingsKeys.push('translationProvider');
+  // Pre-fetch provider config keys to avoid a second storage read in loadProviderConfig
+  const resolvedProvider = providerOverride || 'google';
+  if (resolvedProvider !== 'google' && resolvedProvider !== 'microsoft') {
+    settingsKeys.push(`${resolvedProvider}_apiKey`, `${resolvedProvider}_model`, `${resolvedProvider}_endpoint`);
+  }
+  const allSettings = await chrome.storage.local.get(settingsKeys);
+  const finalProvider = providerOverride || allSettings.translationProvider || 'google';
+  // If provider changed after pre-fetch, load its config keys too
+  const providerConfig = (finalProvider !== 'google' && finalProvider !== 'microsoft')
+    ? {
+        apiKey: allSettings[`${finalProvider}_apiKey`] || '',
+        model: allSettings[`${finalProvider}_model`] || '',
+        endpoint: allSettings[`${finalProvider}_endpoint`] || ''
+      }
+    : null;
+  const mergedConfigOverride = providerConfig && !configOverride
+    ? providerConfig
+    : configOverride;
+  const targetLang = to || allSettings.targetLang || 'zh-CN';
   const safeTexts = Array.isArray(texts) ? texts : [];
   const LANG_NAMES = { 'zh-CN': 'Simplified Chinese', 'zh-TW': 'Traditional Chinese', 'en': 'English', 'ja': 'Japanese', 'ko': 'Korean', 'fr': 'French', 'de': 'German', 'es': 'Spanish', 'ru': 'Russian', 'pt': 'Portuguese', 'it': 'Italian', 'ar': 'Arabic' };
   const langName = LANG_NAMES[targetLang] || targetLang;
   const promptContext = buildPromptContext(context);
-  const providerIdentity = await resolveProviderIdentity(provider, configOverride);
+  const providerIdentity = await resolveProviderIdentity(finalProvider, mergedConfigOverride);
   const cacheMeta = {
-    provider,
+    provider: finalProvider,
     targetLang,
     contentType: contentType || 'body',
     context: promptContext,
@@ -213,15 +234,15 @@ async function handleTranslate({ texts, from, to, providerOverride, configOverri
         texts: missingTexts,
         targetLang,
         langName,
-        provider,
-        configOverride,
+        provider: finalProvider,
+        configOverride: mergedConfigOverride,
         promptContext,
         contentType
       })
     });
   } catch (error) {
-    const wrapped = new Error(formatTranslationError(provider, error));
-    wrapped.userMessage = formatTranslationError(provider, error);
+    const wrapped = new Error(formatTranslationError(finalProvider, error));
+    wrapped.userMessage = formatTranslationError(finalProvider, error);
     throw wrapped;
   }
 }
@@ -291,12 +312,29 @@ async function translateWithCache({ texts, cacheMeta, translateMissing }) {
   return { translations, cacheHits, cacheMisses: misses.length };
 }
 
-async function readTranslationCache() {
+async function readTranslationCache(bypassMemory = false) {
+  // Check in-memory cache first (includes pending entries)
+  if (!bypassMemory && _memoryCacheEntries && (Date.now() - _memoryCacheLoadedAt) < MEMORY_CACHE_TTL_MS) {
+    // Merge pending entries into a view (without mutating memory cache)
+    const merged = Object.keys(_pendingCacheEntries).length > 0
+      ? Object.assign({}, _memoryCacheEntries, _pendingCacheEntries)
+      : _memoryCacheEntries;
+    return { version: TRANSLATION_CACHE_VERSION, entries: merged };
+  }
   try {
     const data = await chrome.storage.local.get(TRANSLATION_CACHE_KEY);
     const cache = data[TRANSLATION_CACHE_KEY];
     if (!cache || cache.version !== TRANSLATION_CACHE_VERSION || !cache.entries || typeof cache.entries !== 'object') {
+      _memoryCacheEntries = {};
+      _memoryCacheLoadedAt = Date.now();
       return { version: TRANSLATION_CACHE_VERSION, entries: {} };
+    }
+    _memoryCacheEntries = cache.entries;
+    _memoryCacheLoadedAt = Date.now();
+    // Include any pending entries not yet flushed
+    if (Object.keys(_pendingCacheEntries).length > 0) {
+      const merged = Object.assign({}, cache.entries, _pendingCacheEntries);
+      return { version: cache.version, entries: merged };
     }
     return cache;
   } catch (error) {
@@ -318,11 +356,18 @@ async function writeTranslationCache(cache) {
 // Uses debounced batching to reduce storage I/O under concurrent chunk translation.
 let _pendingCacheEntries = {};
 let _cacheFlushTimer = null;
-const CACHE_FLUSH_DELAY_MS = 2500;
+const CACHE_FLUSH_DELAY_MS = 1500;
+
+// In-memory cache layer — avoids repeated chrome.storage.local deserialization
+let _memoryCacheEntries = null;
+let _memoryCacheLoadedAt = 0;
+const MEMORY_CACHE_TTL_MS = 60000; // refresh from storage every 60s
 
 async function mergeTranslationCacheEntries(newEntries) {
   if (!newEntries || Object.keys(newEntries).length === 0) return;
   Object.assign(_pendingCacheEntries, newEntries);
+  // Also update in-memory cache immediately so concurrent chunks can hit these entries
+  if (_memoryCacheEntries) Object.assign(_memoryCacheEntries, newEntries);
   if (_cacheFlushTimer) clearTimeout(_cacheFlushTimer);
   _cacheFlushTimer = setTimeout(() => flushPendingCacheEntries(), CACHE_FLUSH_DELAY_MS);
 }
@@ -333,13 +378,30 @@ async function flushPendingCacheEntries() {
   _pendingCacheEntries = {};
   if (Object.keys(entries).length === 0) return;
   try {
-    const cache = await readTranslationCache();
+    const cache = await readTranslationCache(true); // bypass memory cache for flush
     Object.assign(cache.entries, entries);
     pruneTranslationCache(cache);
     await chrome.storage.local.set({ [TRANSLATION_CACHE_KEY]: cache });
+    // Update memory cache after successful write
+    _memoryCacheEntries = cache.entries;
+    _memoryCacheLoadedAt = Date.now();
   } catch (error) {
+    // Put entries back to retry on next flush
+    Object.assign(_pendingCacheEntries, entries);
     console.warn('[NewsForge] Translation cache merge skipped:', error?.message || error);
   }
+}
+
+// Flush pending cache entries before SW suspends to prevent data loss
+if (typeof self !== 'undefined' && 'addEventListener' in self) {
+  self.addEventListener('activate', () => {
+    // Periodically flush if there are pending entries (safety net)
+    setInterval(() => {
+      if (Object.keys(_pendingCacheEntries).length > 0) {
+        flushPendingCacheEntries();
+      }
+    }, 5000);
+  });
 }
 
 function pruneTranslationCache(cache) {
@@ -459,25 +521,50 @@ function buildNewsTranslationPrompt({ provider, model, langName, contentType, co
   const contextBlock = buildContextBlock(context);
   const isMTModel = typeof model === 'string' && model.startsWith('qwen-mt-');
   const isHeadline = contentType === 'headline';
+  const isChinese = /chinese/i.test(langName);
 
   if (isMTModel) {
     const systemPrompt = isHeadline
       ? `Translate the input news headline into ${langName}. Use the full-article terminology hints to resolve and keep named entities consistent. Return only a JSON array of translated strings.`
       : `Translate the input news ${contentLabel} into ${langName}. Use the full-article terminology hints to resolve and keep named entities consistent. Return only a JSON array of translated strings in the same order as the input array.`;
 
-    const userPrompt = [
+    const mtUserLines = [
       contextBlock,
       'Use the context only to resolve ambiguity. Do not translate the instructions.',
       'For every person, organization, and place name, choose one target-language form and reuse it consistently across this article.',
-      'For romanized Chinese, Hong Kong, Taiwanese, or other Chinese-origin personal names, infer the most appropriate Chinese-script form from the full article context and known news usage when possible.',
-      'If a segment only has a surname or partial name, resolve it against the full-name hints first. For example, if Cheng is linked to a full name, translate Cheng using that person’s chosen Chinese surname; do not alternate between 程/郑/成 or add 女士/先生 unless present in the source.',
-      'Keep the romanized form only as a last resort when context gives no reasonable basis for a Chinese-script rendering.',
-      'Input JSON array:',
-      JSON.stringify(texts)
-    ].filter(Boolean).join('\n\n');
+    ];
+    if (isChinese) {
+      mtUserLines.push(
+        'For romanized Chinese, Hong Kong, Taiwanese, or other Chinese-origin personal names, infer the most appropriate Chinese-script form from the full article context and known news usage when possible.',
+        "If a segment only has a surname or partial name, resolve it against the full-name hints first. For example, if Cheng is linked to a full name, translate Cheng using that person\u2019s chosen Chinese surname; do not alternate between \u7a0b/\u90d1/\u6210 or add \u5973\u58eb/\u5148\u751f unless present in the source.",
+        'Keep the romanized form only as a last resort when context gives no reasonable basis for a Chinese-script rendering.'
+      );
+    }
+    mtUserLines.push('Input JSON array:', JSON.stringify(texts));
+
+    const userPrompt = mtUserLines.filter(Boolean).join('\n\n');
 
     return { systemPrompt, userPrompt, useSystemRole: false };
   }
+
+  // Build Chinese-specific name rules conditionally
+  const chineseHeadlineRules = isChinese ? `
+5. For romanized Chinese, Hong Kong, Taiwanese, or other Chinese-origin personal names, infer the most appropriate Chinese-script form from the article context and known news usage when possible.
+6. Resolve surname-only or partial-name mentions against the full-name terminology hints.
+7. Keep the romanized form only as a last resort when context gives no reasonable basis for a Chinese-script rendering.
+` : '';
+  const chineseBodyRules = isChinese ? `
+6. For romanized Chinese, Hong Kong, Taiwanese, or other Chinese-origin personal names, infer the most appropriate Chinese-script form from the full article context and known news usage when possible. Do not default to English if the news context supports a Chinese rendering.
+7. Resolve surname-only or partial-name mentions against the full-name terminology hints. If the article links "Cheng" to one full name, translate every "Cheng" mention using that same chosen Chinese surname.
+8. Keep the romanized form only as a last resort when context gives no reasonable basis for a Chinese-script rendering.
+9. Never alternate between different Chinese characters for the same romanized person name in one article, such as \u7a0b/\u90d1/\u6210 or different given names.
+10. Do not add honorifics such as Ms., Mr., \u5973\u58eb, or \u5148\u751f unless they are present in the source text.
+` : '';
+  const hlJsonRule = isChinese ? 8 : 5;
+  const bdQuoteRule = isChinese ? 11 : 6;
+  const bdHeadingRule = isChinese ? 12 : 7;
+  const bdContextRule = isChinese ? 13 : 8;
+  const bdOrderRule = isChinese ? 14 : 9;
 
   const systemPrompt = isHeadline
     ? `You are a professional native-level news headline translator working into ${langName}.
@@ -487,10 +574,7 @@ Rules:
 2. Preserve the original meaning, tone, and news angle.
 3. Keep names, numbers, dates, and factual claims accurate.
 4. Use one consistent target-language form for every person, organization, and place name across the article.
-5. For romanized Chinese, Hong Kong, Taiwanese, or other Chinese-origin personal names, infer the most appropriate Chinese-script form from the article context and known news usage when possible.
-6. Resolve surname-only or partial-name mentions against the full-name terminology hints.
-7. Keep the romanized form only as a last resort when context gives no reasonable basis for a Chinese-script rendering.
-8. Return ONLY valid JSON — no explanations, no markdown fences, no commentary before or after the JSON.
+${chineseHeadlineRules}${hlJsonRule}. Return ONLY valid JSON \u2014 no explanations, no markdown fences, no commentary before or after the JSON.
 
 Output format (strictly follow this structure):
 {"translations":[{"id":0,"text":"..."}]}`
@@ -499,20 +583,15 @@ Output format (strictly follow this structure):
 Translate with the standards of a high-quality news desk.
 
 Rules:
-1. Return ONLY valid JSON — no explanations, no markdown fences, no commentary before or after the JSON.
+1. Return ONLY valid JSON \u2014 no explanations, no markdown fences, no commentary before or after the JSON.
 2. Preserve facts, numbers, dates, and attributions exactly.
 3. Keep the journalistic tone, register, and structure appropriate for news writing.
 4. Use the established target-language form for people, organizations, and places when one clearly exists; otherwise preserve the original term.
 5. Maintain one consistent target-language rendering for every named entity across all chunks of this article. Do not alternate between variants.
-6. For romanized Chinese, Hong Kong, Taiwanese, or other Chinese-origin personal names, infer the most appropriate Chinese-script form from the full article context and known news usage when possible. Do not default to English if the news context supports a Chinese rendering.
-7. Resolve surname-only or partial-name mentions against the full-name terminology hints. If the article links "Cheng" to one full name, translate every "Cheng" mention using that same chosen Chinese surname.
-8. Keep the romanized form only as a last resort when context gives no reasonable basis for a Chinese-script rendering.
-9. Never alternate between different Chinese characters for the same romanized person name in one article, such as 程/郑/成 or different given names.
-10. Do not add honorifics such as Ms., Mr., 女士, or 先生 unless they are present in the source text.
-11. Translate quotes faithfully without adding interpretation.
-12. Keep section headings concise and news-style.
-13. Use any provided context only to disambiguate meaning; do not introduce information not present in the segment itself.
-14. Return translations in the same order as the input.
+${chineseBodyRules}${bdQuoteRule}. Translate quotes faithfully without adding interpretation.
+${bdHeadingRule}. Keep section headings concise and news-style.
+${bdContextRule}. Use any provided context only to disambiguate meaning; do not introduce information not present in the segment itself.
+${bdOrderRule}. Return translations in the same order as the input.
 
 Output format (strictly follow this structure):
 {"translations":[{"id":0,"text":"..."},{"id":1,"text":"..."}]}`;
@@ -820,8 +899,32 @@ function parseLLMTranslations(rawContent, texts) {
   }
 
   if (!Array.isArray(translations)) translations = [normalizeTranslationItem(translations)];
+  // Use id field for alignment when count mismatch (LLM may skip or reorder items)
   if (translations.length !== texts.length) {
     console.warn(`[NewsForge] Translation count mismatch: expected ${texts.length}, got ${translations.length}`);
+    // Try to align by id field if the parsed items were objects with id
+    try {
+      const jsonStr = extractJsonString(stripThinkingTokens(typeof rawContent === 'string' ? rawContent : extractTextFromLLMValue(rawContent)));
+      const parsed = JSON.parse(jsonStr);
+      const items = Array.isArray(parsed) ? parsed : (parsed?.translations || []);
+      if (Array.isArray(items) && items.some(it => it && typeof it === 'object' && 'id' in it)) {
+        const aligned = new Array(texts.length).fill('');
+        for (const item of items) {
+          const id = Number(item?.id);
+          if (!isNaN(id) && id >= 0 && id < texts.length) {
+            aligned[id] = normalizeTranslationItem(item);
+          }
+        }
+        // Only use aligned result if it has more non-empty entries
+        const alignedCount = aligned.filter(t => t.trim()).length;
+        const sequentialCount = translations.slice(0, texts.length).filter(t => String(t || '').trim()).length;
+        if (alignedCount >= sequentialCount) {
+          translations = aligned;
+        }
+      }
+    } catch {
+      // Alignment attempt failed, fall through to sequential padding
+    }
   }
   while (translations.length < texts.length) translations.push('');
   return translations.slice(0, texts.length);
@@ -832,12 +935,16 @@ function parseLLMTranslations(rawContent, texts) {
 // ============================================
 async function googleTranslate(texts, targetLang) {
   const lang = targetLang === 'zh-TW' ? 'zh-TW' : targetLang === 'zh-CN' ? 'zh-CN' : targetLang;
-  const concurrency = 5;
+  const concurrency = 8;
   const translations = new Array(texts.length);
+  let nextIdx = 0;
 
-  for (let i = 0; i < texts.length; i += concurrency) {
-    const batch = texts.slice(i, i + concurrency);
-    const results = await Promise.all(batch.map(async (text) => {
+  const worker = async () => {
+    while (true) {
+      const idx = nextIdx;
+      if (idx >= texts.length) break;
+      nextIdx = idx + 1;
+      const text = texts[idx];
       const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${lang}&dt=t&q=${encodeURIComponent(text)}`;
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
@@ -856,20 +963,22 @@ async function googleTranslate(texts, targetLang) {
               if (part && part[0]) result += part[0];
             }
           }
-          return result || text;
+          translations[idx] = result || text;
+          break;
         } catch (err) {
           if (attempt < 2) {
             await new Promise(r => setTimeout(r, 500 * Math.pow(2, attempt) + Math.random() * 500));
             continue;
           }
           console.warn('[NewsForge] Google Translate item failed:', err.message);
-          return text; // Return original on final failure
+          translations[idx] = text;
         }
       }
-      return text;
-    }));
-    results.forEach((r, idx) => { translations[i + idx] = r; });
-  }
+    }
+  };
+
+  const workers = Array.from({ length: Math.min(concurrency, texts.length) }, () => worker());
+  await Promise.all(workers);
 
   return { translations };
 }
@@ -998,7 +1107,8 @@ async function openaiTranslate(texts, targetLang, langName, provider, configOver
   const requestBody = {
     model,
     messages,
-    temperature: 0.3
+    temperature: 0.3,
+    max_tokens: Math.max(4096, Math.min(16384, texts.reduce((sum, t) => sum + String(t).length, 0) * 4))
   };
 
   // Enable JSON mode for compatible providers to avoid garbled/mixed output
@@ -1019,10 +1129,15 @@ async function openaiTranslate(texts, targetLang, langName, provider, configOver
 
   const maxRetries = 3;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const response = await fetch(endpoint, {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), LLM_FETCH_TIMEOUT_MS);
+    let response;
+    try {
+    response = await fetch(endpoint, {
       method: 'POST',
       headers: fetchHeaders,
-      body
+      body,
+      signal: controller.signal
     });
 
     if (response.ok) {
@@ -1040,6 +1155,15 @@ async function openaiTranslate(texts, targetLang, langName, provider, configOver
     }
 
     throw new Error(`API error ${response.status}: ${errText.substring(0, 200)}`);
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        if (attempt < maxRetries) { await new Promise(r => setTimeout(r, 1000)); continue; }
+        throw new Error(`${providerDisplayName(provider)} request timed out after ${LLM_FETCH_TIMEOUT_MS / 1000}s`);
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
 }
 
@@ -1059,6 +1183,7 @@ async function claudeTranslate(texts, targetLang, langName, provider, configOver
   const requestBody = JSON.stringify({
     model,
     max_tokens: 8192,
+    temperature: 0.3,
     system: prompt.systemPrompt,
     messages: [
       { role: 'user', content: prompt.userPrompt }
@@ -1074,10 +1199,14 @@ async function claudeTranslate(texts, targetLang, langName, provider, configOver
 
   const maxRetries = 3;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), LLM_FETCH_TIMEOUT_MS);
+    try {
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: fetchHeaders,
-      body: requestBody
+      body: requestBody,
+      signal: controller.signal
     });
 
     if (response.ok) {
@@ -1095,6 +1224,15 @@ async function claudeTranslate(texts, targetLang, langName, provider, configOver
     }
 
     throw new Error(`Claude API error ${response.status}: ${errText.substring(0, 200)}`);
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        if (attempt < maxRetries) { await new Promise(r => setTimeout(r, 1000)); continue; }
+        throw new Error(`Claude request timed out after ${LLM_FETCH_TIMEOUT_MS / 1000}s`);
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
 }
 
@@ -1115,30 +1253,50 @@ async function deeplTranslate(texts, targetLang, langName, provider, configOverr
   texts.forEach(t => params.append('text', t));
   params.append('target_lang', deeplLang);
 
-  let response;
-  try {
-    response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Authorization': `DeepL-Auth-Key ${apiKey}`
-      },
-      body: params.toString()
-    });
-  } catch (err) {
-    throw new Error('DeepL request failed. Reload the extension to accept the new permission, then try again. If you use a Pro key, set the endpoint to https://api.deepl.com/v2/translate in settings.');
+  const maxRetries = 3;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), LLM_FETCH_TIMEOUT_MS);
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Authorization': `DeepL-Auth-Key ${apiKey}`
+        },
+        body: params.toString(),
+        signal: controller.signal
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const translations = data.translations?.map(t => t.text || '') || [];
+        while (translations.length < texts.length) translations.push('');
+        return { translations };
+      }
+
+      const errText = await response.text();
+      const isRetryable = response.status === 429 || response.status === 503 || response.status === 529;
+      if (attempt < maxRetries && isRetryable) {
+        await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt) + Math.random() * 1000));
+        continue;
+      }
+      throw new Error(`DeepL error ${response.status}: ${errText.substring(0, 200)}`);
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        if (attempt < maxRetries) { await new Promise(r => setTimeout(r, 1000)); continue; }
+        throw new Error(`DeepL request timed out after ${LLM_FETCH_TIMEOUT_MS / 1000}s`);
+      }
+      if (attempt < maxRetries && (err.message?.includes('fetch') || err.message?.includes('network'))) {
+        await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt)));
+        continue;
+      }
+      if (err.message?.includes('DeepL error')) throw err;
+      throw new Error('DeepL request failed. Reload the extension to accept the new permission, then try again. If you use a Pro key, set the endpoint to https://api.deepl.com/v2/translate in settings.');
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
-
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`DeepL error ${response.status}: ${err.substring(0, 200)}`);
-  }
-
-  const data = await response.json();
-  const translations = data.translations?.map(t => t.text || '') || [];
-  while (translations.length < texts.length) translations.push('');
-
-  return { translations };
 }
 
 // ============================================
