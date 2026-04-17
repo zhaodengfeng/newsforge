@@ -175,8 +175,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let fieldsHtml = `
       <div class="field">
-        <label class="field-label">API Key</label>
-        <input type="password" class="input" id="cfg_apiKey" value="${escapeAttr(savedApiKey)}" placeholder="Enter API Key">
+        <label class="field-label">API Key${info.type === 'deepl' ? 's' : ''}</label>
+        ${info.type === 'deepl'
+          ? `<textarea class="input input-multiline" id="cfg_apiKey" rows="4" placeholder="Enter API Key, one per line">${escapeAttr(savedApiKey)}</textarea>
+             <div class="field-hint">One API Key per line. When one key's quota is exhausted, the next key will be used automatically.</div>`
+          : `<input type="password" class="input" id="cfg_apiKey" value="${escapeAttr(savedApiKey)}" placeholder="Enter API Key">`
+        }
       </div>`;
 
     if (info.type !== 'deepl') {
@@ -286,7 +290,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const endpointEl = document.getElementById('cfg_endpoint');
     const deeplPlanEl = document.getElementById('cfg_deeplPlan');
 
-    const apiKey = apiKeyEl ? apiKeyEl.value.trim() : '';
+    const apiKey = apiKeyEl
+      ? (info.type === 'deepl'
+        ? apiKeyEl.value.trim().split('\n').map(k => k.trim()).filter(Boolean).join('\n')
+        : apiKeyEl.value.trim())
+      : '';
     const customModel = customModelEl ? customModelEl.value.trim() : '';
     const model = customModel || (modelEl ? modelEl.value.trim() : '') || info.model || '';
     const deeplPlan = deeplPlanEl ? deeplPlanEl.value : getDeepLPlanFromEndpoint(endpointEl ? endpointEl.value : info.endpoint);
@@ -339,9 +347,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function loadAndRenderConfig(provider) {
     return new Promise((resolve) => {
-      chrome.storage.local.get(getStoredKeys(provider), (data) => {
+      const keys = getStoredKeys(provider);
+      if (provider === 'deepl') keys.push('deepl_apiKeys');
+      chrome.storage.local.get(keys, (data) => {
+        // Merge multi-keys into apiKey field for display
+        let displayApiKey = data[`${provider}_apiKey`] || '';
+        if (provider === 'deepl' && data.deepl_apiKeys && Array.isArray(data.deepl_apiKeys) && data.deepl_apiKeys.length > 0) {
+          displayApiKey = data.deepl_apiKeys.join('\n');
+        }
         renderProviderConfig(provider, {
-          apiKey: data[`${provider}_apiKey`] || '',
+          apiKey: displayApiKey,
           model: data[`${provider}_model`] || '',
           endpoint: data[`${provider}_endpoint`] || '',
           plan: data[`${provider}_plan`] || ''
@@ -439,11 +454,14 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     if (info.type !== 'free') {
-      toSet[`${draft.provider}_apiKey`] = draft.apiKey;
       if (info.type === 'deepl') {
+        const keys = draft.apiKey.split('\n').map(k => k.trim()).filter(Boolean);
+        toSet[`${draft.provider}_apiKey`] = keys[0] || '';
+        toSet[`${draft.provider}_apiKeys`] = keys.length > 1 ? keys : [];
         toSet[`${draft.provider}_plan`] = draft.deeplPlan;
         toSet[`${draft.provider}_endpoint`] = draft.endpoint;
       } else {
+        toSet[`${draft.provider}_apiKey`] = draft.apiKey;
         toSet[`${draft.provider}_model`] = draft.model;
         toSet[`${draft.provider}_endpoint`] = draft.endpoint;
       }
@@ -536,6 +554,7 @@ document.addEventListener('DOMContentLoaded', () => {
     'claude_model',
     'claude_endpoint',
     'deepl_apiKey',
+    'deepl_apiKeys',
     'deepl_plan',
     'deepl_endpoint',
     'custom_openai_apiKey',
