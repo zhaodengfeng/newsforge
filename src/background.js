@@ -1164,6 +1164,11 @@ async function openaiTranslate(texts, targetLang, langName, provider, configOver
         if (attempt < maxRetries) { await new Promise(r => setTimeout(r, 1000)); continue; }
         throw new Error(`${providerDisplayName(provider)} request timed out after ${LLM_FETCH_TIMEOUT_MS / 1000}s`);
       }
+      // Retry on transient network errors (DNS, TCP reset, TLS handshake, etc.)
+      if (attempt < maxRetries && (err.message?.includes('fetch') || err.message?.includes('network') || err.message?.includes('ECONNRESET') || err.message?.includes('ENOTFOUND') || err.message?.includes('ECONNREFUSED'))) {
+        await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt)));
+        continue;
+      }
       throw err;
     } finally {
       clearTimeout(timeoutId);
