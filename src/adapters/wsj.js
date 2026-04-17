@@ -65,7 +65,53 @@ class WSJAdapter extends BaseAdapter {
     return path;
   }
 
+  _findTopHeroImage() {
+    const article = document.querySelector('article');
+    const articleTop = article
+      ? (article.getBoundingClientRect().top + window.scrollY)
+      : Infinity;
+    const title = document.querySelector('h1[class*="headline"], [class*="article-headline"], h1');
+    const titleTop = title
+      ? (title.getBoundingClientRect().top + window.scrollY)
+      : 0;
+
+    const candidates = Array.from(document.images)
+      .map(img => {
+        const src = this._resolveImageSrc(img) || img.currentSrc || img.src || '';
+        const rect = img.getBoundingClientRect();
+        const top = rect.top + window.scrollY;
+        const width = rect.width || img.naturalWidth || img.width || 0;
+        const height = rect.height || img.naturalHeight || img.height || 0;
+        const area = width * height;
+        return { img, src, top, width, height, area };
+      })
+      .filter(({ img, src, top, width, height, area }) => {
+        if (!src || !/^https?:\/\//i.test(src)) return false;
+        if (article && article.contains(img)) return false;
+        if (this._isFilteredImage(src, img)) return false;
+        if (width < 260 || height < 260 || area < 120000) return false;
+        if (top < 0) return false;
+        if (top > Math.min(articleTop + 120, titleTop + 1600, 2200)) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        const score = (item) => {
+          let value = item.area;
+          if ((item.img.getAttribute('fetchpriority') || '').toLowerCase() === 'high') value += 400000;
+          if ((item.img.getAttribute('loading') || '').toLowerCase() === 'eager') value += 200000;
+          if (item.top < articleTop) value += 150000;
+          if (item.top <= titleTop + 400) value += 100000;
+          return value;
+        };
+        return score(b) - score(a);
+      });
+
+    return candidates[0]?.src || '';
+  }
+
   getFeaturedImage() {
+    const hero = this._findTopHeroImage();
+    if (hero) return hero;
     const og = document.querySelector('meta[property="og:image"]');
     if (og) return og.getAttribute('content') || '';
     return super.getFeaturedImage();

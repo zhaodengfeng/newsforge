@@ -91,6 +91,11 @@ Additional behavior:
 
 ## Recent Updates
 
+### v26.4.15b16
+
+- Fixed WSJ featured-image detection so reader mode prefers the real top hero image instead of a mismatched social-share image when they differ
+- Updated package/version naming for the `26.4.15b16` beta line
+
 ### v26.4.12b3
 
 - Restored the article source URL at the bottom of `Title + hero` screenshot exports so they match full-page screenshots more closely
@@ -285,12 +290,12 @@ Install from the Chrome Web Store:
 
 ### Manual install
 
-1. Download the latest `newsforge-v26.4.12b3.zip` package.
+1. Download the latest `newsforge-v26.4.15b16.zip` package.
 2. Unzip the package.
 3. Open `chrome://extensions`.
 4. Enable `Developer mode`.
 5. Click `Load unpacked`.
-6. Select the unzipped `newsforge-v26.4.12b3` folder.
+6. Select the unzipped `newsforge-v26.4.15b16` folder.
 
 ## Development
 
@@ -328,7 +333,7 @@ To work locally:
 
 1. Make changes under `src/`.
 2. Load the `src` folder as an unpacked extension during development.
-3. For release packaging, zip the built extension folder as `newsforge-v26.4.12b3.zip`.
+3. For release packaging, zip the built extension folder as `newsforge-v26.4.15b16.zip`.
 
 ## Privacy
 
