@@ -693,6 +693,10 @@ function formatTranslationError(provider, error) {
     return `${providerName} 返回了空结果，请更换模型或稍后重试。`;
   }
 
+  if (lower.includes('incomplete') || lower.includes('incomplete response')) {
+    return `${providerName} 翻译结果不完整，请重试或切换到其他翻译服务。`;
+  }
+
   return `${providerName} 翻译失败：${raw.slice(0, 180)}`;
 }
 
@@ -931,6 +935,15 @@ function parseLLMTranslations(rawContent, texts) {
     }
   }
   while (translations.length < texts.length) translations.push('');
+
+  // Detect incomplete translations — LLM may have truncated or returned partial results
+  const nonEmptyCount = translations.slice(0, texts.length).filter(t => String(t).trim()).length;
+  if (nonEmptyCount < texts.length && nonEmptyCount / texts.length < 0.7) {
+    const err = new Error(`LLM returned incomplete translations: ${nonEmptyCount}/${texts.length}`);
+    err.partial = true;
+    throw err;
+  }
+
   return translations.slice(0, texts.length);
 }
 
