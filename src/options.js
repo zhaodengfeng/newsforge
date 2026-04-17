@@ -8,6 +8,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const exportQualitySelect = document.getElementById('exportQuality');
   const exportQualityField = document.getElementById('exportQualityField');
   const longArticleMultiImageExportSelect = document.getElementById('longArticleMultiImageExport');
+  const disableReasoning = document.getElementById('disableReasoning');
   const providerConfig = document.getElementById('providerConfig');
   const activeSummaryLine = document.getElementById('activeSummaryLine');
   const btnTestTranslate = document.getElementById('btnTestTranslate');
@@ -450,7 +451,8 @@ document.addEventListener('DOMContentLoaded', () => {
       exportImageFormat: normalizeExportImageFormat(exportImageFormatSelect ? exportImageFormatSelect.value : 'jpeg'),
       exportScreenshotScope: normalizeExportScreenshotScope(exportScreenshotScopeSelect ? exportScreenshotScopeSelect.value : 'full'),
       exportQuality: exportQualitySelect ? exportQualitySelect.value : 'balanced',
-      longArticleMultiImageExport: longArticleMultiImageExportSelect ? longArticleMultiImageExportSelect.value === 'on' : false
+      longArticleMultiImageExport: longArticleMultiImageExportSelect ? longArticleMultiImageExportSelect.value === 'on' : false,
+      disableReasoning: disableReasoning ? disableReasoning.checked : false
     };
 
     if (info.type !== 'free') {
@@ -497,13 +499,14 @@ document.addEventListener('DOMContentLoaded', () => {
     if (longArticleMultiImageExportSelect) {
       longArticleMultiImageExportSelect.value = baseSettings.longArticleMultiImageExport === true ? 'on' : 'off';
     }
+    if (disableReasoning) disableReasoning.checked = baseSettings.disableReasoning === true;
     updateExportQualityVisibility();
     return loadAndRenderConfig(currentProvider);
   }
 
   function refreshSettingsFromStorage() {
     return new Promise((resolve) => {
-      chrome.storage.local.get(['translationProvider', 'targetLang', 'readerTheme', 'exportImageFormat', 'exportScreenshotScope', 'exportQuality', 'longArticleMultiImageExport'], (baseSettings) => {
+      chrome.storage.local.get(['translationProvider', 'targetLang', 'readerTheme', 'exportImageFormat', 'exportScreenshotScope', 'exportQuality', 'longArticleMultiImageExport', 'disableReasoning'], (baseSettings) => {
         applyBaseSettings(baseSettings || {}).then(() => {
           resolve(baseSettings || {});
         });
@@ -527,6 +530,7 @@ document.addEventListener('DOMContentLoaded', () => {
     'exportScreenshotScope',
     'exportQuality',
     'longArticleMultiImageExport',
+    'disableReasoning',
     'google_apiKey',
     'microsoft_apiKey',
     'openai_apiKey',

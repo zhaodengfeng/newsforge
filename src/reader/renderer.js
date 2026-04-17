@@ -832,6 +832,10 @@ const ReaderRenderer = {
 
         const workers = Array.from({ length: Math.min(chunkConcurrency, chunks.length) }, () => processChunks());
         await Promise.all(workers);
+
+        if (chunkErrors > 0) {
+          throw new Error(`Translation incomplete (${chunkErrors} chunk${chunkErrors > 1 ? 's' : ''} failed). Please retry or switch to another service.`);
+        }
       })();
 
       await Promise.all([titlePromise, bodyPromise]);

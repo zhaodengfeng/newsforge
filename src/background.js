@@ -190,7 +190,7 @@ function arrayBufferToDataUrl(arrayBuffer, mime) {
 // ============================================
 async function handleTranslate({ texts, from, to, providerOverride, configOverride, context, contentType, cacheScope }) {
   // One-shot settings read — avoids repeated chrome.storage.local.get calls in sub-functions
-  const settingsKeys = ['translationProvider', 'targetLang'];
+  const settingsKeys = ['translationProvider', 'targetLang', 'disableReasoning'];
   const provider = providerOverride || 'google';
   if (!providerOverride) settingsKeys.push('translationProvider');
   // Pre-fetch provider config keys to avoid a second storage read in loadProviderConfig
@@ -212,6 +212,7 @@ async function handleTranslate({ texts, from, to, providerOverride, configOverri
     ? providerConfig
     : configOverride;
   const targetLang = to || allSettings.targetLang || 'zh-CN';
+  const disableReasoning = allSettings.disableReasoning === true;
   const safeTexts = Array.isArray(texts) ? texts : [];
   const LANG_NAMES = { 'zh-CN': 'Simplified Chinese', 'zh-TW': 'Traditional Chinese', 'en': 'English', 'ja': 'Japanese', 'ko': 'Korean', 'fr': 'French', 'de': 'German', 'es': 'Spanish', 'ru': 'Russian', 'pt': 'Portuguese', 'it': 'Italian', 'ar': 'Arabic' };
   const langName = LANG_NAMES[targetLang] || targetLang;
@@ -237,7 +238,8 @@ async function handleTranslate({ texts, from, to, providerOverride, configOverri
         provider: finalProvider,
         configOverride: mergedConfigOverride,
         promptContext,
-        contentType
+        contentType,
+        disableReasoning
       })
     });
   } catch (error) {
@@ -247,7 +249,7 @@ async function handleTranslate({ texts, from, to, providerOverride, configOverri
   }
 }
 
-async function translateProvider({ texts, targetLang, langName, provider, configOverride, promptContext, contentType }) {
+async function translateProvider({ texts, targetLang, langName, provider, configOverride, promptContext, contentType, disableReasoning }) {
   switch (provider) {
     case 'google':
       return googleTranslate(texts, targetLang);
@@ -257,9 +259,9 @@ async function translateProvider({ texts, targetLang, langName, provider, config
       return deeplTranslate(texts, targetLang, langName, provider, configOverride);
     case 'claude':
     case 'custom_claude':
-      return claudeTranslate(texts, targetLang, langName, provider, configOverride, promptContext, contentType);
+      return claudeTranslate(texts, targetLang, langName, provider, configOverride, promptContext, contentType, disableReasoning);
     default:
-      return openaiTranslate(texts, targetLang, langName, provider, configOverride, promptContext, contentType);
+      return openaiTranslate(texts, targetLang, langName, provider, configOverride, promptContext, contentType, disableReasoning);
   }
 }
 
@@ -937,8 +939,9 @@ function parseLLMTranslations(rawContent, texts) {
   while (translations.length < texts.length) translations.push('');
 
   // Detect incomplete translations — LLM may have truncated or returned partial results
+  // Always throw if any translation is empty; let the renderer handle retry/split
   const nonEmptyCount = translations.slice(0, texts.length).filter(t => String(t).trim()).length;
-  if (nonEmptyCount < texts.length && nonEmptyCount / texts.length < 0.7) {
+  if (nonEmptyCount < texts.length) {
     const err = new Error(`LLM returned incomplete translations: ${nonEmptyCount}/${texts.length}`);
     err.partial = true;
     throw err;
@@ -1102,7 +1105,7 @@ function supportsJsonMode(provider, model) {
 // ============================================
 // OpenAI 兼容翻译
 // ============================================
-async function openaiTranslate(texts, targetLang, langName, provider, configOverride, context, contentType) {
+async function openaiTranslate(texts, targetLang, langName, provider, configOverride, context, contentType, disableReasoning) {
   const cfg = await loadProviderConfig(provider, configOverride);
   const apiKey = cfg.apiKey;
   const model = cfg.model || PROVIDERS[provider]?.model || '';
@@ -1131,6 +1134,26 @@ async function openaiTranslate(texts, targetLang, langName, provider, configOver
   // Enable JSON mode for compatible providers to avoid garbled/mixed output
   if (supportsJsonMode(provider, model)) {
     requestBody.response_format = { type: 'json_object' };
+  }
+
+  // Disable model reasoning for translation (faster, fewer tokens, less truncation)
+  if (disableReasoning) {
+    const m = model.toLowerCase();
+    switch (provider) {
+      case 'gemini':
+        // Gemini OpenAI-compatible endpoint: thinking is off by default, no param needed
+        break;
+      case 'qwen':
+        requestBody.enable_thinking = false;
+        break;
+      case 'openrouter':
+        if (m.includes('gemini') || m.includes('gem') || m.includes('reason')) {
+          requestBody.thinking = { type: 'disabled' };
+        }
+        break;
+      // OpenAI, DeepSeek, GLM, Kimi, custom_openai: no standardized thinking param
+      // in their OpenAI-compatible endpoints; default models have no reasoning enabled
+    }
   }
 
   const body = JSON.stringify(requestBody);
@@ -1192,7 +1215,7 @@ async function openaiTranslate(texts, targetLang, langName, provider, configOver
 // ============================================
 // Claude API 翻译
 // ============================================
-async function claudeTranslate(texts, targetLang, langName, provider, configOverride, context, contentType) {
+async function claudeTranslate(texts, targetLang, langName, provider, configOverride, context, contentType, disableReasoning) {
   const cfg = await loadProviderConfig(provider, configOverride);
   const apiKey = cfg.apiKey;
   const model = cfg.model || PROVIDERS[provider]?.model || '';

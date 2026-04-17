@@ -286,6 +286,59 @@
     .field { margin-bottom: 16px; }
     .field:last-child { margin-bottom: 0; }
 
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 0;
+      cursor: pointer;
+    }
+    .toggle-label {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      margin-right: 12px;
+    }
+    .toggle-label span:first-child {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text);
+    }
+    .toggle-desc {
+      font-size: 11px;
+      color: var(--text-tertiary);
+    }
+    .toggle-switch {
+      position: relative;
+      width: 40px;
+      height: 22px;
+      appearance: none;
+      -webkit-appearance: none;
+      background: var(--border);
+      border-radius: 11px;
+      outline: none;
+      cursor: pointer;
+      transition: background 0.2s;
+      flex-shrink: 0;
+    }
+    .toggle-switch:checked {
+      background: var(--accent);
+    }
+    .toggle-switch::before {
+      content: '';
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 18px;
+      height: 18px;
+      background: #fff;
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+    .toggle-switch:checked::before {
+      transform: translateX(18px);
+    }
+
     .field-label {
       display: block;
       font-size: 12px;
@@ -822,6 +875,25 @@
                 </div>
 
                 <div class="summary-note" id="activeSummaryLine">Current: Google Translate / zh-CN</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-header">
+              <div class="section-label">Translation Settings</div>
+              <div class="section-desc">Global preferences that affect how translation requests are sent.</div>
+            </div>
+
+            <div class="card">
+              <div class="config-card">
+                <label class="toggle-row">
+                  <span class="toggle-label">
+                    <span>Disable Model Reasoning</span>
+                    <span class="toggle-desc">Turn off thinking for LLM providers (Gemini, DeepSeek, Qwen, etc.). Faster, uses fewer tokens, and reduces truncation risk.</span>
+                  </span>
+                  <input type="checkbox" class="toggle-switch" id="disableReasoning">
+                </label>
               </div>
             </div>
           </div>
